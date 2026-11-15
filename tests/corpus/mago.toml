@@ -1,0 +1,25 @@
+version = "1"
+php-version = "8.4"
+
+[source]
+paths = ["src"]
+# PHPUnit and Prophecy from the dev dependencies are read for symbols.
+# They aren't checked. The same docblocks are available here as in a project.
+includes = ["../../vendor"]
+
+[extension-hosts.phpunit]
+command = ["php", "-d", "xdebug.mode=off", "-d", "pcov.enabled=0", "../../resources/worker.php"]
+workers = 1
+
+[analyzer]
+# On here so src/class-checks/InitializationAndThrowsTest.php can prove the
+# class-initializers line from the README and UncheckedExceptionFilter.
+check-throws = true
+check-property-initialization = true
+class-initializers = ["PHPUnit\\Framework\\TestCase::setUp"]
+# PHPUnit 11.5 and 12 deprecate assertContainsOnly(), and PHPUnit 10 doesn't. PHPUnit 10 and 11
+# deprecate getMockForTrait() and getObjectForTrait().
+ignore = [
+    { code = "deprecated-method", in = "src/assertions/ContainsOnlyTest.php" },
+    { code = "deprecated-method", in = "src/mocks/TraitDoubleTest.php" },
+]

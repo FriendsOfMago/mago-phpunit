@@ -1,0 +1,8 @@
+version = "1"
+php-version = "8.1"
+
+[source]
+# The worker entrypoint run by every consuming project is under resources/.
+# The plugin is started from that entrypoint. The same checks apply to both.
+paths = ["src", "tests/Unit", "tests/Tools", "resources"]
+includes = ["vendor"]

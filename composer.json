@@ -1,0 +1,44 @@
+{
+  "$schema": "https://getcomposer.org/schema.json",
+  "name": "friendsofmago/mago-phpunit",
+  "description": "Mago extension for PHPUnit and Prophecy: types for mocks and assertions, test class checks and PHPUnit linter rules.",
+  "type": "library",
+  "license": "MIT",
+  "authors": [
+    {
+      "name": "Andrei Mateescu",
+      "email": "andrei@amateescu.me"
+    }
+  ],
+  "keywords": [
+    "mago",
+    "static-analysis",
+    "phpunit",
+    "prophecy"
+  ],
+  "require": {
+    "php": "^8.1",
+    "carthage-software/mago": "^1.60.1",
+    "composer-runtime-api": "^2.0"
+  },
+  "require-dev": {
+    "phpspec/prophecy-phpunit": "^2.0",
+    "phpunit/phpunit": "^10.5 || ^11.5 || ^12.0 || ^13.0"
+  },
+  "autoload": {
+    "psr-4": {
+      "MagoPHPUnit\\": "src/"
+    }
+  },
+  "autoload-dev": {
+    "psr-4": {
+      "MagoPHPUnit\\Tests\\": "tests/Unit/",
+      "MagoPHPUnit\\Tests\\Tools\\": "tests/Tools/"
+    }
+  },
+  "config": {
+    "allow-plugins": false,
+    "optimize-autoloader": true,
+    "sort-packages": true
+  }
+}

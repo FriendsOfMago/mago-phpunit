@@ -1,0 +1,5 @@
+/vendor/
+/.mago/
+/.phpunit.cache/
+/composer.lock
+/tests/.corpus-pins-*/

@@ -1,0 +1,12 @@
+<?php
+
+use PHPUnit\Framework\TestCase;
+
+final class Test extends TestCase
+{
+    public function testFoo(): void
+    {
+        $this->assertEquals(true, $flag);
+        self::assertEquals(false, $other);
+    }
+}
