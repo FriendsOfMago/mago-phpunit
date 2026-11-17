@@ -22,8 +22,6 @@ use function preg_replace;
  * Reports `assertEquals()` and `assertNotEquals()` with a scalar literal, where a strict assertion fits.
  *
  * @internal
- *
- * @mago-expect lint:cyclomatic-complexity
  */
 final class StrictAssertionsRule implements Rule
 {
@@ -56,11 +54,7 @@ final class StrictAssertionsRule implements Rule
     public function lint(LintContext $context): void
     {
         $file = $context->file;
-        if (!TestMethods::isTest($file, $context->node)) {
-            return;
-        }
-
-        foreach (TestMethods::calls($file, $context->node, [AssertionNames::ASSERTIONS]) as $call) {
+        foreach (MethodScan::shared()->assertionsInTest($file, $context->node) as $call) {
             if (!in_array($call->name, self::LOOSE, strict: true) || $call->argumentList === null) {
                 continue;
             }

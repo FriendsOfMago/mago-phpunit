@@ -44,7 +44,7 @@ final class NoAssertEmptyRule implements Rule
      */
     public function lint(LintContext $context): void
     {
-        foreach (TestMethods::calls($context->file, $context->node, [AssertionNames::ASSERTIONS]) as $call) {
+        foreach (MethodScan::shared()->assertionsInMethod($context->file, $context->node) as $call) {
             $name = strtolower($call->name);
             if (!in_array($name, ['assertempty', 'assertnotempty'], strict: true)) {
                 continue;

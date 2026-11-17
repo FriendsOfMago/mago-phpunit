@@ -58,14 +58,8 @@ final class AssertionStyleRule implements Rule
      */
     public function lint(LintContext $context): void
     {
-        $file = $context->file;
-        if (!TestMethods::isTest($file, $context->node)) {
-            return;
-        }
-
         $desired = self::SYNTAX[$this->style];
-        $names = [AssertionNames::ASSERTIONS, AssertionNames::HELPERS];
-        foreach (TestMethods::calls($file, $context->node, $names) as $call) {
+        foreach (MethodScan::shared()->callsInTest($context->file, $context->node) as $call) {
             // A `parent::` call reaches the parent's method on purpose.
             if ($call->receiver === 'parent' || $call->receiver === $this->style) {
                 continue;

@@ -12,10 +12,8 @@ use MagoPHPUnit\Internal\Text\CodeMask;
 use MagoPHPUnit\Internal\Text\Docblocks;
 
 use function array_key_exists;
-use function array_pop;
 use function count;
 use function ctype_upper;
-use function in_array;
 use function str_starts_with;
 use function strcasecmp;
 use function strlen;
@@ -24,7 +22,7 @@ use function strtolower;
 use function substr;
 
 /**
- * Finds test methods and the assertion calls in their bodies.
+ * Finds test methods, and reads an assertion or helper call from its node.
  *
  * @internal
  *
@@ -34,20 +32,6 @@ use function substr;
 final class TestMethods
 {
     public const TEST_ATTRIBUTE = 'PHPUnit\Framework\Attributes\Test';
-
-    /**
-     * The nodes whose bodies don't belong to the method.
-     */
-    private const SKIPPED = [
-        NodeKind::Closure,
-        NodeKind::ArrowFunction,
-        NodeKind::CompositeString,
-        NodeKind::Function,
-        NodeKind::Class_,
-        NodeKind::Interface,
-        NodeKind::Trait,
-        NodeKind::Enum,
-    ];
 
     private function __construct() {}
 
@@ -129,74 +113,12 @@ final class TestMethods
     }
 
     /**
-     * Returns the calls in the method body to a method in one of the name lists.
-     *
-     * Closures, arrow functions and anonymous class bodies are skipped, since
-     * `$this` there isn't the test case. The constructor arguments of an
-     * anonymous class are still searched. Interpolated strings are skipped
-     * too, the same as in Mago's built-in rules, since `static::` can't be
-     * written inside `{...}`.
-     *
-     * @param list<array<string, true>> $names Lowercased method names.
-     *
-     * @return list<AssertionCall>
-     */
-    public static function calls(SourceFile $file, Node $method, array $names): array
-    {
-        $body = $file->getFirstDescendant($method, NodeKind::MethodBody);
-        if ($body === null) {
-            return [];
-        }
-
-        $calls = [];
-        $stack = [$body];
-        while (($node = array_pop($stack)) !== null) {
-            if (in_array($node->kind, self::SKIPPED, strict: true)) {
-                continue;
-            }
-
-            $children = $file->getChildren($node);
-            if ($node->kind === NodeKind::AnonymousClass) {
-                $children = [];
-                foreach ($file->getChildren($node) as $child) {
-                    if ($child->kind !== NodeKind::ArgumentList && $child->kind !== NodeKind::PartialArgumentList) {
-                        continue;
-                    }
-
-                    $children[] = $child;
-                }
-            }
-
-            for ($index = count($children) - 1; $index >= 0; --$index) {
-                $stack[] = $children[$index];
-            }
-
-            // PHP 8.1 doesn't allow `->value` on an enum case in a constant, so the kinds are matched here.
-            $operator = match ($node->kind) {
-                NodeKind::MethodCall, NodeKind::MethodPartialApplication => '->',
-                NodeKind::StaticMethodCall, NodeKind::StaticMethodPartialApplication => '::',
-                default => null,
-            };
-            if ($operator === null) {
-                continue;
-            }
-
-            $call = self::call($file, $node, $operator, $names);
-            if ($call !== null) {
-                $calls[] = $call;
-            }
-        }
-
-        return $calls;
-    }
-
-    /**
      * Returns the call when its receiver and name match, or null.
      *
      * @param '->'|'::' $operator
      * @param list<array<string, true>> $names
      */
-    private static function call(SourceFile $file, Node $node, string $operator, array $names): ?AssertionCall
+    public static function call(SourceFile $file, Node $node, string $operator, array $names): ?AssertionCall
     {
         $children = $file->getChildren($node);
         [$receiverNode, $selector, $argumentList] = [$children[0] ?? null, $children[1] ?? null, $children[2] ?? null];

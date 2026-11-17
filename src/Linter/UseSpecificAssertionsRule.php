@@ -65,11 +65,7 @@ final class UseSpecificAssertionsRule implements Rule
     public function lint(LintContext $context): void
     {
         $file = $context->file;
-        if (!TestMethods::isTest($file, $context->node)) {
-            return;
-        }
-
-        foreach (TestMethods::calls($file, $context->node, [AssertionNames::ASSERTIONS]) as $call) {
+        foreach (MethodScan::shared()->assertionsInTest($file, $context->node) as $call) {
             [$first, $second] = [$call->arguments[0] ?? null, $call->arguments[1] ?? null];
             $list = $call->argumentList?->span;
             if (!in_array($call->name, self::COMPARING, strict: true) || $list === null) {

@@ -86,7 +86,7 @@ final class SetUpProblem
      *
      * Prophecy throws when such a method is set up.
      */
-    public static function intersectionReturn(FunctionLikeMetadata $method): ?Type
+    private static function intersectionReturn(FunctionLikeMetadata $method): ?Type
     {
         $type = $method->declaredReturnType?->type;
         foreach ($type->atomicTypes ?? [] as $atomic) {
