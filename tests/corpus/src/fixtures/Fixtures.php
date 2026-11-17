@@ -21,20 +21,6 @@ interface ThingLabelInterface
     public function label(): string;
 }
 
-/**
- * An interface that extends Traversable without Iterator or IteratorAggregate.
- *
- * @extends \Traversable<int, mixed>
- */
-interface ThingListInterface extends \Traversable {}
-
-/**
- * An interface that is traversable through an iterator aggregate.
- *
- * @extends \IteratorAggregate<int, mixed>
- */
-interface ThingAggregateInterface extends \IteratorAggregate {}
-
 interface Clock
 {
     public function now(): int;

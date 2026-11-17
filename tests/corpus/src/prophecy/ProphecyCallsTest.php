@@ -64,7 +64,7 @@ final class ProphecyCallsTest extends TestCase
     public function testDeclared(): void
     {
         $thing = $this->prophesize(Thing::class);
-        $thing->onlyOnThing()->willReturn(null);
+        $thing->onlyOnThing()->shouldBeCalled();
         $thing->reveal()->onlyOnThing();
     }
 
@@ -73,7 +73,7 @@ final class ProphecyCallsTest extends TestCase
      */
     public function testDocumented(): void
     {
-        $this->documented->onlyOnThing()->willReturn(null);
+        $this->documented->onlyOnThing()->shouldBeCalled();
         $this->passUnion($this->documented);
     }
 
@@ -114,7 +114,7 @@ final class ProphecyCallsTest extends TestCase
         }
         $thing->willImplement(ThingLabelInterface::class);
         $thing->label()->willReturn('label');
-        $thing->onlyOnThing()->willReturn(null);
+        $thing->onlyOnThing()->shouldBeCalled();
     }
 
     /**
@@ -157,13 +157,13 @@ final class ProphecyCallsTest extends TestCase
     public function testWillExtend(): void
     {
         $extended = $this->prophesize(Thing::class)->willExtend(Other::class);
-        $extended->onlyOnOther()->willReturn(null);
+        $extended->onlyOnOther()->shouldBeCalled();
         // @mago-expect analysis:non-documented-method
         $extended->onlyOnThing();
 
         $labelled = $this->prophesize(ThingLabelInterface::class)->willExtend(Other::class);
         $labelled->label()->willReturn('kept');
-        $labelled->onlyOnOther()->willReturn(null);
+        $labelled->onlyOnOther()->shouldBeCalled();
     }
 
     /**
@@ -174,6 +174,6 @@ final class ProphecyCallsTest extends TestCase
     {
         $prophecy = $this->prophesize(Thing::class);
         $prophecy->willExtend(Other::class);
-        $prophecy->onlyOnOther()->willReturn(null);
+        $prophecy->onlyOnOther()->shouldBeCalled();
     }
 }

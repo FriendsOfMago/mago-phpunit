@@ -18,9 +18,17 @@ use MagoPHPUnit\Analyzer\Mock\MockUnionArgumentFilter;
 use MagoPHPUnit\Analyzer\Mock\MockUnionProvider;
 use MagoPHPUnit\Analyzer\Mock\PlainMockCallHook;
 use MagoPHPUnit\Analyzer\Mock\TraitDoubleProvider;
+use MagoPHPUnit\Analyzer\Prophecy\BareProphecyArgumentFilter;
 use MagoPHPUnit\Analyzer\Prophecy\ProphecyCallProvider;
+use MagoPHPUnit\Analyzer\Prophecy\ProphecyDoubleHook;
+use MagoPHPUnit\Analyzer\Prophecy\ProphecyReturnArgumentHook;
+use MagoPHPUnit\Analyzer\Prophecy\ProphecyReturnHook;
+use MagoPHPUnit\Analyzer\Prophecy\ProphecySetUpHook;
 use MagoPHPUnit\Analyzer\Prophecy\ProphecyThisOutProvider;
+use MagoPHPUnit\Analyzer\Prophecy\ProphecyTokenHook;
+use MagoPHPUnit\Analyzer\Prophecy\ProphecyTypeTokenHook;
 use MagoPHPUnit\Analyzer\Prophecy\ProphecyUnionHook;
+use MagoPHPUnit\Analyzer\Prophecy\ProphecyYieldHook;
 use MagoPHPUnit\Analyzer\TestClass\TestClassHook;
 
 use function array_keys;
@@ -40,7 +48,7 @@ final class PHPUnitPlugin implements Plugin
         return new PluginDefinition(
             identifier: 'phpunit',
             name: 'PHPUnit',
-            description: 'Narrows the assertions left untagged by PHPUnit, types intersection mocks, mock unions and Prophecy calls, and reports invalid data providers, mocked methods that do not exist, missing parent setUp() calls, invalid covers and assertions that always pass.',
+            description: 'Narrows the assertions left untagged by PHPUnit, types intersection mocks, mock unions and Prophecy calls, checks the arguments and return values of Prophecy calls and the classes and methods Prophecy cannot double, and reports invalid data providers, mocked methods that do not exist, missing parent setUp() calls, invalid covers and assertions that always pass.',
         );
     }
 
@@ -76,6 +84,14 @@ final class PHPUnitPlugin implements Plugin
 
         $registry->registerMethodReturnTypeProvider(new ProphecyCallProvider());
         $registry->registerNodeAnalysisHook(new ProphecyUnionHook());
+        $registry->registerMethodCallAnalysisHook(new ProphecyReturnHook());
+        $registry->registerMethodCallAnalysisHook(new ProphecyReturnArgumentHook());
+        $registry->registerMethodCallAnalysisHook(new ProphecyYieldHook());
+        $registry->registerMethodCallAnalysisHook(new ProphecyDoubleHook());
+        $registry->registerMethodCallAnalysisHook(new ProphecySetUpHook());
+        $registry->registerMethodCallAnalysisHook(new ProphecyTypeTokenHook());
+        $registry->registerMethodCallAnalysisHook(new ProphecyTokenHook());
+        $registry->registerIssueFilterHook(new BareProphecyArgumentFilter());
         $thisOut = new ProphecyThisOutProvider();
         $registry->registerMethodReturnTypeProvider($thisOut);
         $registry->registerMethodAssertionProvider($thisOut);

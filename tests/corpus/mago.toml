@@ -23,3 +23,8 @@ ignore = [
     { code = "deprecated-method", in = "src/assertions/ContainsOnlyTest.php" },
     { code = "deprecated-method", in = "src/mocks/TraitDoubleTest.php" },
 ]
+
+[formatter]
+# The class must stay on the line of the open tag, for the check of the
+# `final` keyword in src/prophecy/ProphecyDoubleTest.php.
+excludes = ["src/prophecy/OneLineFinal.php"]

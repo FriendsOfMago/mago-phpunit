@@ -4,42 +4,36 @@ declare(strict_types=1);
 
 namespace MagoPHPUnit\Analyzer\Prophecy;
 
-use Mago\Sdk\Analyzer\Codebase;
-use Mago\Sdk\Analyzer\Invocation;
+use Mago\Sdk\Analyzer\CallableSignatureProvider;
+use Mago\Sdk\Analyzer\CallableSignatureProviderContext;
+use Mago\Sdk\Analyzer\EffectiveCallableSignature;
 use Mago\Sdk\Analyzer\MethodReturnTypeProvider;
 use Mago\Sdk\Analyzer\MethodTarget;
 use Mago\Sdk\Analyzer\ReturnTypeProviderContext;
 use Mago\Sdk\Analyzer\Type;
-use Mago\Sdk\Analyzer\Type\NamedObjectType;
 use Mago\Sdk\Analyzer\UndeclaredReturnTypeProvider;
-use MagoPHPUnit\Internal\Type\Types;
-
-use function array_map;
-use function in_array;
-use function strtolower;
 
 /**
- * Types the calls that set up a prophecy.
+ * Types the calls that set up a prophecy and checks their arguments.
  *
  * @internal
  */
-final class ProphecyCallProvider implements MethodReturnTypeProvider, UndeclaredReturnTypeProvider
+final class ProphecyCallProvider implements
+    MethodReturnTypeProvider,
+    UndeclaredReturnTypeProvider,
+    CallableSignatureProvider
 {
-    private const OBJECT_PROPHECY = 'Prophecy\Prophecy\ObjectProphecy';
-
-    private const METHOD_PROPHECY = 'Prophecy\Prophecy\MethodProphecy';
-
     /**
-     * The methods `TraversablePatch` adds, by lowercased name.
+     * The interface of the argument matchers, such as `Argument::any()`.
      */
-    private const ITERATOR_METHODS = ['current', 'key', 'next', 'rewind', 'valid'];
+    public const ARGUMENT_MATCHER = 'Prophecy\Argument\Token\TokenInterface';
 
     /**
      * Targets every method of `ObjectProphecy`.
      */
     public function getTargets(): array
     {
-        return [MethodTarget::allMethods(self::OBJECT_PROPHECY)];
+        return [MethodTarget::allMethods(ProphesizedMethod::OBJECT_PROPHECY)];
     }
 
     /**
@@ -59,60 +53,32 @@ final class ProphecyCallProvider implements MethodReturnTypeProvider, Undeclared
      */
     public function getReturnType(ReturnTypeProviderContext $context): ?Type
     {
-        return self::prophesied($context->invocation, $context->codebase)
-            ? Type::namedObject(self::METHOD_PROPHECY)
-            : null;
+        $invocation = $context->invocation;
+        $classes = ProphesizedMethod::classes($invocation->receiverType);
+        if ($classes !== [] && ProphesizedMethod::find($context->codebase, $classes, $invocation->name) === null) {
+            return null;
+        }
+
+        return Type::namedObject(ProphesizedMethod::METHOD_PROPHECY);
     }
 
     /**
-     * Whether the method exists on the prophesized class, or the class isn't known.
+     * Returns the parameters of the prophesized method.
+     *
+     * Mago checks the arguments of the call against them.
+     * Each parameter also takes an argument token, such as `Argument::any()`,
+     * and a prophecy of an object it takes. Prophecy reveals a prophecy
+     * passed as an argument.
      */
-    private static function prophesied(Invocation $invocation, Codebase $codebase): bool
+    public function getCallableSignature(CallableSignatureProviderContext $context): ?EffectiveCallableSignature
     {
-        $classes = [];
-        foreach ($invocation->receiverType->atomicTypes ?? [] as $atomic) {
-            if (!$atomic instanceof NamedObjectType) {
-                continue;
-            }
-
-            foreach ($atomic->parameters ?? [] as $parameter) {
-                $classes = [...$classes, ...Types::names($parameter)];
-            }
+        $invocation = $context->invocation;
+        $method = CheckedMethod::find($context->codebase, $invocation->receiverType, $invocation->name);
+        $class = $method?->identifier->class;
+        if ($method === null || $class === null) {
+            return null;
         }
 
-        foreach ($classes as $class) {
-            if (strtolower($class) !== 'object' && $codebase->getDeclaringMethod($class, $invocation->name) !== null) {
-                return true;
-            }
-        }
-
-        // A double of an interface that is `Traversable` but neither an
-        // `Iterator` nor an `IteratorAggregate` also has the `Iterator`
-        // methods. They're added by Prophecy's `TraversablePatch`.
-        if (in_array($invocation->name, self::ITERATOR_METHODS, strict: true)) {
-            foreach ($classes as $class) {
-                if (self::patchedTraversable($codebase, $class)) {
-                    return true;
-                }
-            }
-        }
-
-        return $classes === [];
-    }
-
-    /**
-     * Whether the class is `Traversable` without being an `IteratorAggregate`.
-     */
-    private static function patchedTraversable(Codebase $codebase, string $class): bool
-    {
-        // A class must implement `Iterator` or `IteratorAggregate` to be Traversable. An interface
-        // can extend `Traversable` directly. The `Iterator` methods are declared in `Iterator`
-        // itself. They are found by the method lookup before this check.
-        $ancestors = array_map(strtolower(...), [$class, ...$codebase->getClassAncestors($class)]);
-
-        return (
-            in_array('traversable', $ancestors, strict: true)
-            && !in_array('iteratoraggregate', $ancestors, strict: true)
-        );
+        return ProphecySignature::of($context->codebase, $method, $class, $invocation->arguments);
     }
 }

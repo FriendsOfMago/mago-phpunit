@@ -173,10 +173,11 @@ $mailer->sendLater('a@example.com');                // still reported, Mailer do
 
 Prophecy sets up these calls through `__call()`, so without the extension Mago reports each one as
 `non-documented-method`. With it, a call to a method of the prophesized class returns a
-`MethodProphecy`. After `willImplement(Foo::class)`, the prophecy has the methods of `Foo` as well.
-After `willExtend(Foo::class)`, it has the methods of `Foo` instead of the prophesized class, and
-keeps the interfaces. A double of a `Traversable` interface also has the `Iterator` methods added
-by Prophecy, unless the interface extends `IteratorAggregate`.
+`MethodProphecy`. After `willImplement(Foo::class)`, the prophecy also has the methods of `Foo`.
+After `willExtend(Foo::class)`, it has them instead of the prophesized class's, and keeps the
+interfaces. A double of a `Traversable` interface has the `Iterator` methods added by Prophecy,
+unless the interface extends `IteratorAggregate`. The calls are checked too, as listed under
+[Prophecy calls](#prophecy-calls).
 
 ### Exceptions
 
@@ -194,6 +195,11 @@ Each check reports an analyzer issue with a `phpunit/` code.
 | `phpunit/mock-undefined-method` | error | `method('name')` for a method that can't be replaced in the double: missing, final, private, protected, a constructor or a destructor |
 | `phpunit/mock-call-on-plain-type` | error | `expects()` or `method()` on a value typed without `MockObject`, when its class doesn't declare that method |
 | `phpunit/prophecy-union` | warning | a type documented as `Foo\|ObjectProphecy`, which should be `ObjectProphecy<Foo>` |
+| `phpunit/prophecy-invalid-return` | error, or warning in some cases | a value that the prophesized method can't return, listed under [Prophecy calls](#prophecy-calls) |
+| `phpunit/prophecy-invalid-double` | error | a class that Prophecy can't double, such as a final class |
+| `phpunit/prophecy-invalid-setup` | error | a method that Prophecy can't set up, such as a final or a private method |
+| `phpunit/prophecy-unknown-type` | error | a name given to `Argument::type()` that isn't a type or a class |
+| `phpunit/prophecy-token-mismatch` | error, or warning for a docblock type | an argument token that can never match its parameter, listed under [Prophecy calls](#prophecy-calls) |
 | `phpunit/assert-same-count` | warning | `assertSame($n, count($value))` or `assertSame($n, $value->count())`, where `assertCount()` is clearer |
 | `phpunit/invalid-data-provider` | error, or warning in two cases | a data provider or data set that PHPUnit can't use, listed under [Data providers](#data-providers) |
 | `phpunit/data-provider-mismatch` | error, or warning in one case | a data set that doesn't fit the test's parameters, listed under [Data providers](#data-providers) |
@@ -225,6 +231,65 @@ $mailer->method('sendLater');
 
 By default, `mago analyze` only fails on errors. Pass `--minimum-fail-level=warning` to fail on the
 warnings too.
+
+### Prophecy calls
+
+```php
+interface Mailer
+{
+    public function send(string $address): bool;
+}
+
+$mailer->send(['a@example.com']);                   // invalid-argument
+$mailer->send();                                    // too-few-arguments
+$mailer->send('a@example.com')->willReturn('sent');
+// phpunit/prophecy-invalid-return: `willReturn()` gets `string`, but `App\Mailer::send()` returns `bool`.
+```
+
+The arguments are checked by Mago against the prophesized method's parameters. A parameter also
+takes an argument token (any arguments after `Argument::cetera()`), a prophecy of an object it
+takes, also inside an array, and the values that Prophecy compares loosely with it: a number or a
+`Stringable` object for a string, a numeric string or the other kind of number for a number, a
+string or a number for an object with `__toString()`, and any `DateTimeInterface` for a date. A
+setup with a required argument
+missing is reported, also with `shouldNotBeCalled()`. It never matches a call, so such a test only
+passes through Prophecy's error for an unexpected call. An extra argument is reported too, though
+the setup still matches a call that passes it. `Argument::cetera()` matches any arguments.
+
+An argument token that can never match its parameter is reported as `prophecy-token-mismatch`,
+such as `Argument::type('int')` or `Argument::containingString('x')` for an `int` parameter,
+`Argument::is(5)` for a `string` one, or `Argument::that(fn(Foo $foo) => ...)` when the parameter
+takes a `Bar`. A callback is called without strict types, so a scalar parameter type that PHP
+converts to, such as `string` for an `int` argument, is fine. A token that matches only some of the
+arguments, such as a callback for a subclass, isn't reported. The issue is an error when the native
+parameter type rules the token out, and a warning when only the docblock type does.
+
+`willReturn()` values are checked against the return type, also after calls such as
+`->shouldBeCalled()`. The value is an error when it fails with a `TypeError`. It's a warning when
+it only breaks a docblock type, when PHP converts it to the native type (the double isn't in
+strict mode, so `'5'` becomes an `int`), when it fits in part, such as `?int` for an `int`, or
+when it's wider, such as `object` for a `Foo`. The parameter returned by `willReturnArgument()`
+is checked the same way, as a warning when the parameter type only overlaps the return type, and
+an index past the method's parameters returns null unless the call passes an extra argument. A
+negative index is an error, since Prophecy throws for it. The items given
+to `willYield()` are checked against the type the method yields, as a warning. Prophecy doesn't
+reveal the prophecies in them. These are errors too, since Prophecy throws for them or the double
+fails:
+
+- `willReturn()`, `willReturnArgument()` or `willYield()` on a `void` or `never` method.
+- `prophesize()` of a final class, an enum or a trait, `willExtend()` of an interface and
+  `willImplement()` of a class. A class marked `@final` only in its docblock isn't reported.
+- Setting up a final method, or a method with an intersection in its native return type.
+- Setting up a method that isn't replaced in the double, so the setup never takes effect: a private
+  method, a protected one that isn't abstract, or a class's method whose name starts with `_`.
+  Prophecy does replace `__construct()`, `__destruct()`, `__sleep()`, `__wakeup()`,
+  `__toString()`, `__call()` and `__invoke()`, the methods of an interface given to
+  `prophesize()` or `willImplement()`, and the methods of `@method` tags.
+- Setting up a static method. The double's static method fails when it's called.
+- `willYield()` on a method whose native return type can't hold a `Generator`.
+- `Argument::type()` with a name that isn't a class or a type with an `is_*()` function.
+
+A prophecy documented without its class, such as `@var ObjectProphecy`, isn't checked.
 
 ### Data providers
 
@@ -380,6 +445,18 @@ counterpart, and so do its bleeding-edge rules for empty data providers and inco
 - On PHPUnit 10, `assertEmpty()` has a `@psalm-assert empty $actual` tag, and Mago applies it. An
   object checked by `assertEmpty()` is then narrowed to `never`. PHPUnit 11 and later don't have
   the tag.
+- `willReturn()` isn't checked when the `MethodProphecy` is kept in a variable first, as in
+  `$send = $mailer->send('a@example.com'); $send->willReturn(true);`.
+- An `Argument::cetera()` token kept in a variable isn't recognized, so the arguments of a call
+  that passes the variable are checked as if it were one argument. Mago doesn't give an extension
+  the argument types at that point.
+- The calls on a value typed as a prophecy of one class or another, such as
+  `ObjectProphecy<A>|ObjectProphecy<B>`, aren't checked when the classes have different methods of
+  that name.
+- Prophecy matches named arguments by their position. Mago matches them by their name, so a named
+  argument in another order than the parameters isn't reported.
+- The parameter and return types that depend on a template, such as `T` in a generic class, aren't
+  checked in Prophecy calls.
 - `$prophecy->willExtend(Foo::class);` on its own line types the prophecy as both the old class and
   `Foo`, because Mago can narrow a variable's type but not remove part of it. A chained call gets
   `Foo` alone.

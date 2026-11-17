@@ -105,6 +105,20 @@ final class Types
     }
 
     /**
+     * Whether every member of the type is an array or a list.
+     */
+    public static function arraysOnly(Type $type): bool
+    {
+        foreach ($type->atomicTypes as $atomic) {
+            if (!$atomic instanceof KeyedArrayType && !$atomic instanceof ListType) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
      * Whether every part of the type is `never`.
      */
     public static function never(Type $type): bool
