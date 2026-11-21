@@ -49,6 +49,11 @@ final class MethodScan
     private bool $tests = false;
 
     /**
+     * The name mentions of the last file, or null before a method is searched.
+     */
+    private ?NameMentions $mentions = null;
+
+    /**
      * The call index of the last file, or null before a method body is searched.
      */
     private ?CallIndex $index = null;
@@ -86,11 +91,15 @@ final class MethodScan
      */
     public function assertionsInTest(SourceFile $file, Node $method): array
     {
-        if (!$this->file($file)->assertions || !$this->isTest($file, $method)) {
+        if (!$this->file($file)->assertions) {
             return [];
         }
 
-        return self::assertionsOnly($this->calls($file, $method));
+        // The calls are looked up first. Most methods don't have any, and
+        // the test check reads more nodes than a lookup without a mention.
+        $calls = self::assertionsOnly($this->calls($file, $method));
+
+        return $calls === [] || !$this->isTest($file, $method) ? [] : $calls;
     }
 
     /**
@@ -100,11 +109,13 @@ final class MethodScan
      */
     public function callsInTest(SourceFile $file, Node $method): array
     {
-        if (!$this->file($file)->tests || !$this->isTest($file, $method)) {
+        if (!$this->file($file)->tests) {
             return [];
         }
 
-        return $this->calls($file, $method);
+        $calls = $this->calls($file, $method);
+
+        return $calls === [] || !$this->isTest($file, $method) ? [] : $calls;
     }
 
     /**
@@ -134,6 +145,7 @@ final class MethodScan
             $this->file = $file;
             $this->assertions = stripos($file->contents, needle: 'assert') !== false;
             $this->tests = stripos($file->contents, needle: 'test') !== false;
+            $this->mentions = null;
             $this->index = null;
             $this->method = null;
         }
@@ -163,12 +175,19 @@ final class MethodScan
             return $this->calls;
         }
 
+        // A method without a mention doesn't have a call, so its nodes
+        // aren't read.
+        $this->mentions ??= new NameMentions($file->contents);
+        if (!$this->mentions->within($method->span)) {
+            return $this->calls = [];
+        }
+
         $body = $file->getFirstDescendant($method, NodeKind::MethodBody);
         if ($body === null) {
             return $this->calls = [];
         }
 
-        $this->index ??= new CallIndex($file);
+        $this->index ??= new CallIndex($file, $this->mentions);
         $names = [AssertionNames::ASSERTIONS, AssertionNames::HELPERS];
         $calls = [];
         foreach ($this->index->callsIn($file, $body) as [$node, $operator]) {

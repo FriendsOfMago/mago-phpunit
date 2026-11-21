@@ -11,6 +11,7 @@ use Mago\Sdk\Syntax\SourceFile;
 use function count;
 use function in_array;
 use function intdiv;
+use function preg_match;
 use function usort;
 
 /**
@@ -22,6 +23,8 @@ use function usort;
  * their ancestors.
  *
  * @internal
+ *
+ * @mago-expect lint:cyclomatic-complexity
  */
 final class CallIndex
 {
@@ -50,40 +53,59 @@ final class CallIndex
     ];
 
     /**
-     * The call nodes and the operator before the method name, by the
-     * call's start and then the outer call first.
+     * The kinds of a call written with a `?` or `...` placeholder.
+     */
+    private const PARTIAL = [NodeKind::MethodPartialApplication, NodeKind::StaticMethodPartialApplication];
+
+    /**
+     * Text that every placeholder call has: `...`, or a `?` before the `,`
+     * or `)` that ends the argument. A comment can stand between the two.
+     */
+    private const PLACEHOLDER = '~\.\.\.|\?\s*(?:[,)#]|/[/*])~';
+
+    /**
+     * The call nodes with a name mention and the operator before the method
+     * name, by the call's start and then the outer call first.
      *
      * @var list<array{Node, '->'|'::'}>
      */
     private readonly array $calls;
 
     /**
-     * Reads the call nodes of the file.
+     * Reads the call nodes of the file that have a name mention.
+     *
+     * Each kind costs a pass over the file's node table. The two passes for
+     * placeholder calls are skipped in a file without placeholder text.
      */
-    public function __construct(SourceFile $file)
+    public function __construct(SourceFile $file, NameMentions $mentions)
     {
+        $partial = preg_match(self::PLACEHOLDER, $file->contents) === 1;
         $calls = [];
         foreach (self::OPERATORS as [$kind, $operator]) {
+            if (!$partial && in_array($kind, self::PARTIAL, strict: true)) {
+                continue;
+            }
+
             foreach ($file->getNodes($kind) as $node) {
+                if (!$mentions->within($node->span)) {
+                    continue;
+                }
+
                 $calls[] = [$node, $operator];
             }
         }
 
-        usort(
-            $calls,
-            static fn(array $left, array $right): int => (
-                [
-                    $left[0]->span->start,
-                    $right[0]->span->end,
-                ] <=> [$right[0]->span->start, $left[0]->span->end]
-            ),
-        );
+        usort($calls, static function (array $left, array $right): int {
+            $order = $left[0]->span->start <=> $right[0]->span->start;
+
+            return $order !== 0 ? $order : $right[0]->span->end <=> $left[0]->span->end;
+        });
         $this->calls = $calls;
     }
 
     /**
-     * The calls in the method body, with the operator of each, in the order
-     * they're written, outer calls first.
+     * The calls with a name mention in the method body, with the operator of
+     * each, in the order they're written, outer calls first.
      *
      * @return list<array{Node, '->'|'::'}>
      */
