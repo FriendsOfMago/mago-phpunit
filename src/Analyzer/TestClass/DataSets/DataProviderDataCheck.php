@@ -285,7 +285,6 @@ final class DataProviderDataCheck
         $names = [];
         foreach (PHPUnitAttributes::of($method, name: 'DataProvider') as $attribute) {
             $name = PHPUnitAttributes::string($attribute, index: 0, name: 'methodName');
-            // @mago-expect lint:literal-named-argument
             $validate = $attribute->getArgument(1, 'validateArgumentCount');
             // PHPUnit counts the set's values unless `validateArgumentCount` is false.
             // A flag that isn't a literal is passed to the analysis as its expression span.

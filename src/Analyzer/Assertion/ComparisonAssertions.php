@@ -41,7 +41,6 @@ final class ComparisonAssertions
      */
     public static function notSame(Invocation $invocation): ?Assertion
     {
-        // @mago-expect lint:literal-named-argument
         $expected = $invocation->getArgument(0, 'expected')?->type;
 
         return $expected !== null && self::literalKey($expected) !== null
@@ -57,7 +56,6 @@ final class ComparisonAssertions
      */
     public static function bound(Invocation $invocation, IntegerAssertionKind $kind, string $name): ?Assertion
     {
-        // @mago-expect lint:literal-named-argument
         $bound = $invocation->getArgument(0, $name, 'expected')?->type?->getLiteralInt();
 
         return $bound === null ? null : new IntegerAssertion($kind, $bound);
@@ -96,7 +94,6 @@ final class ComparisonAssertions
      */
     public static function notContains(Invocation $invocation): array
     {
-        // @mago-expect lint:literal-named-argument
         $haystack = $invocation->getArgument(1, 'haystack')?->type;
         $present = null;
         foreach ($haystack->atomicTypes ?? [] as $atomic) {
@@ -140,7 +137,6 @@ final class ComparisonAssertions
      */
     private static function values(Invocation $invocation): ?array
     {
-        // @mago-expect lint:literal-named-argument
         $haystack = $invocation->getArgument(1, 'haystack')?->type;
         if ($haystack === null) {
             return null;

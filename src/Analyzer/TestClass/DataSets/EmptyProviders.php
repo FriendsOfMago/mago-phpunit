@@ -93,7 +93,6 @@ final class EmptyProviders
     {
         foreach (['DataProvider' => 2, 'DataProviderExternal' => 3] as $name => $position) {
             foreach (PHPUnitAttributes::of($method, $name) as $attribute) {
-                // @mago-expect lint:literal-named-argument
                 $argument = $attribute->getArgument($position, 'skipWhenEmpty');
                 if ($argument === null || $argument->valueType?->getLiteralBool() === false) {
                     continue;

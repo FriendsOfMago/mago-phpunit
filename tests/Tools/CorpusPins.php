@@ -485,8 +485,7 @@ final class CorpusPins
             throw new RuntimeException('Unexpected issue shape in Mago output.');
         }
 
-        // Mago reports 0-based lines.
-        return ['file' => $file, 'line' => $line + 1, 'category' => $category, 'code' => $code];
+        return ['file' => $file, 'line' => $line, 'category' => $category, 'code' => $code];
     }
 
     /**

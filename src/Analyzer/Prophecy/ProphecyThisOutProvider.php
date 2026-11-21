@@ -90,7 +90,6 @@ final class ProphecyThisOutProvider implements MethodReturnTypeProvider, MethodA
      */
     private static function extended(Invocation $invocation, Codebase $codebase, bool $keepClasses = false): ?Type
     {
-        // @mago-expect lint:literal-named-argument(2)
         $added = $invocation->getArgument(0, 'interface', 'class')?->type?->getLiteralClassString();
         $prophecy = self::prophecy($invocation->receiverType);
         if ($added === null || $prophecy === null) {

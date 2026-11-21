@@ -159,7 +159,6 @@ final class TestWithSets
         // invalid.
         $json = $name === self::TEST_WITH_JSON;
         $data = $attribute->getArgument(0, $json ? 'json' : 'data');
-        // @mago-expect lint:literal-named-argument
         $nameArgument = $attribute->getArgument(1, 'name');
         $setName = PHPUnitAttributes::string($attribute, index: 1, name: 'name');
         $text = $json ? $data?->valueType?->getLiteralString() : null;

@@ -4,7 +4,7 @@
 [![Packagist version](https://img.shields.io/packagist/v/friendsofmago/mago-phpunit)](https://packagist.org/packages/friendsofmago/mago-phpunit)
 [![Downloads](https://img.shields.io/packagist/dt/friendsofmago/mago-phpunit)](https://packagist.org/packages/friendsofmago/mago-phpunit)
 [![PHP](https://img.shields.io/badge/PHP-%5E8.1-777BB4?logo=php&logoColor=white)](composer.json)
-[![Mago](https://img.shields.io/badge/Mago-%5E1.60.1-F26B3A)](https://mago.carthage.software)
+[![Mago](https://img.shields.io/badge/Mago-%5E1.61.0-F26B3A)](https://mago.carthage.software)
 [![PHPUnit](https://img.shields.io/badge/PHPUnit-10.5%20%7C%2011.5%20%7C%2012%20%7C%2013-3C9CD7)](composer.json)
 [![License](https://img.shields.io/github/license/FriendsOfMago/mago-phpunit)](LICENSE)
 
@@ -26,7 +26,7 @@ $mailer->method('sendLater');
 ```
 
 PHPUnit 10.5, 11.5, 12 and 13 are supported, and so is Prophecy. The extension needs PHP 8.1 or
-later and Mago 1.60.1 or a later 1.x release. The PHPUnit version is detected from the PHPUnit
+later and Mago 1.61.0 or a later 1.x release. The PHPUnit version is detected from the PHPUnit
 classes in `vendor`. Checks that only apply to some versions, such as the annotation checks, are
 turned on or off to match.
 

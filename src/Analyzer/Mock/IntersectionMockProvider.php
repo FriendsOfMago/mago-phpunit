@@ -61,7 +61,6 @@ final class IntersectionMockProvider implements MethodReturnTypeProvider
     public function getReturnType(ReturnTypeProviderContext $context): ?Type
     {
         $double = self::DOUBLES[strtolower($context->invocation->name)] ?? null;
-        // @mago-expect lint:literal-named-argument
         $interfaces = self::interfaces($context->invocation->getArgument(0, 'interfaces')?->type);
         if ($double === null || $interfaces === null) {
             return null;

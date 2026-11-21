@@ -33,7 +33,6 @@ final class UntaggedAssertions
      */
     public static function onlyInstancesOf(Codebase $codebase, Invocation $invocation): ?Assertion
     {
-        // @mago-expect lint:literal-named-argument
         $class = Types::literalName($invocation->getArgument(0, 'className')?->type);
         if ($class === '' || PHPUnitFeatures::tagsAssertion($codebase, method: 'assertContainsOnlyInstancesOf')) {
             return null;

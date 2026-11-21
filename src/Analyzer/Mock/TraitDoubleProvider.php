@@ -46,7 +46,6 @@ final class TraitDoubleProvider implements MethodReturnTypeProvider
      */
     public function getReturnType(ReturnTypeProviderContext $context): ?Type
     {
-        // @mago-expect lint:literal-named-argument
         $type = $context->invocation->getArgument(0, 'traitName')?->type;
         $trait = ltrim(Types::literalName($type), characters: '\\');
         if ($trait === '') {

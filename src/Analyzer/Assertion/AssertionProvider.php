@@ -189,7 +189,6 @@ final class AssertionProvider implements MethodAssertionProvider
      */
     private static function empty(Codebase $codebase, Invocation $invocation): ?Assertion
     {
-        // @mago-expect lint:literal-named-argument
         $actual = $invocation->getArgument(0, 'actual')?->type;
 
         // PHPUnit counts a Countable. An empty Countable passes `assertEmpty()`. An `EmptyIterator`
@@ -203,7 +202,6 @@ final class AssertionProvider implements MethodAssertionProvider
      */
     private static function key(Invocation $invocation, ArrayKeyAssertionKind $kind): ?Assertion
     {
-        // @mago-expect lint:literal-named-argument
         $type = $invocation->getArgument(0, 'key')?->type;
         if ($type === null || count($type->atomicTypes) !== 1) {
             return null;
@@ -227,9 +225,7 @@ final class AssertionProvider implements MethodAssertionProvider
      */
     private static function property(Invocation $invocation): ?Assertion
     {
-        // @mago-expect lint:literal-named-argument
         $name = $invocation->getArgument(0, 'propertyName')?->type?->getLiteralString();
-        // @mago-expect lint:literal-named-argument
         $object = $invocation->getArgument(1, 'object')?->type;
         if ($name === null || $name === '' || $object === null) {
             return null;
@@ -249,7 +245,6 @@ final class AssertionProvider implements MethodAssertionProvider
      */
     private static function count(Invocation $invocation, IntegerAssertionKind $kind): ?Assertion
     {
-        // @mago-expect lint:literal-named-argument
         $expected = $invocation->getArgument(0, 'expectedCount')?->type?->getLiteralInt();
 
         return $expected === null || $expected < 0 ? null : new IntegerAssertion($kind, $expected);
@@ -267,13 +262,11 @@ final class AssertionProvider implements MethodAssertionProvider
      */
     private static function containsOnly(Invocation $invocation): ?Assertion
     {
-        // @mago-expect lint:literal-named-argument
         $name = $invocation->getArgument(0, 'type')?->type?->getLiteralString();
         if ($name === null || $name === '') {
             return null;
         }
 
-        // @mago-expect lint:literal-named-argument
         $native = $invocation->getArgument(2, 'isNativeType')?->type?->getLiteralBool();
         $element = match ($native === false ? '' : $name) {
             'numeric' => Type::fromAtomic(new ScalarType(ScalarTypeKind::Numeric)),
