@@ -23,6 +23,7 @@ use Mago\Sdk\Span;
 use MagoPHPUnit\Internal\Type\Types;
 
 use function array_slice;
+use function array_values;
 use function count;
 use function is_int;
 use function substr;
@@ -150,6 +151,35 @@ final class DataSetMatch
         }
 
         return null;
+    }
+
+    /**
+     * The numbers of values in the data sets that dependency results can come after.
+     *
+     * PHPUnit 10 passes string-keyed values in order, so they count too.
+     * PHPUnit 11 and later pass them by name, so such a set is left out. A
+     * data set whose values aren't known is left out too.
+     *
+     * @param list<DataSet> $sets
+     *
+     * @return list<int>
+     *
+     * @mago-expect lint:no-boolean-flag-parameter
+     */
+    public static function valueCounts(array $sets, bool $named): array
+    {
+        $counts = [];
+        foreach ($sets as $set) {
+            $values = self::values($set->type, named: true);
+            if ($values === null || $named && $values[1] !== []) {
+                continue;
+            }
+
+            $count = count($values[0]) + count($values[1]);
+            $counts[$count] = $count;
+        }
+
+        return array_values($counts);
     }
 
     /**

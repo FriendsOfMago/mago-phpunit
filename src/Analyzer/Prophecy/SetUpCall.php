@@ -8,6 +8,7 @@ use Mago\Sdk\Analyzer\Metadata\FunctionLikeMetadata;
 use Mago\Sdk\Analyzer\NodeAnalysisContext;
 use Mago\Sdk\Analyzer\Type;
 use Mago\Sdk\Syntax\CallExpression;
+use MagoPHPUnit\Internal\Type\Bottom;
 use MagoPHPUnit\Internal\Type\Types;
 
 use function in_array;
@@ -49,7 +50,7 @@ final class SetUpCall
         if (
             $found === null
             || ProphecySetUpHook::fails($context->codebase, $found[0], $found[2])
-            || ReturnCheck::bottom($found[0]->declaredReturnType?->type) !== null
+            || Bottom::of($found[0]->declaredReturnType?->type) !== null
         ) {
             return null;
         }

@@ -8,13 +8,10 @@ use Mago\Sdk\Analyzer\Metadata\FunctionLikeMetadata;
 use Mago\Sdk\Analyzer\NodeAnalysisContext;
 use Mago\Sdk\Analyzer\Type;
 use Mago\Sdk\Analyzer\Type\AtomicType;
-use Mago\Sdk\Analyzer\Type\SimpleAtomicType;
-use Mago\Sdk\Analyzer\Type\SimpleAtomicTypeKind;
 use Mago\Sdk\Analyzer\TypeComparison;
 use Mago\Sdk\Reporting\Level;
 
 use function array_map;
-use function count;
 use function in_array;
 
 /**
@@ -109,29 +106,5 @@ final class ReturnCheck
             )),
             strict: true,
         );
-    }
-
-    /**
-     * `void` or `never` when the native return type is one of them, or null.
-     *
-     * @return 'void'|'never'|null
-     */
-    public static function bottom(?Type $type): ?string
-    {
-        $atomics = $type->atomicTypes ?? [];
-        if (count($atomics) !== 1) {
-            return null;
-        }
-
-        $atomic = $atomics[0];
-        if (!$atomic instanceof SimpleAtomicType) {
-            return null;
-        }
-
-        return match ($atomic->kind) {
-            SimpleAtomicTypeKind::Void => 'void',
-            SimpleAtomicTypeKind::Never => 'never',
-            default => null,
-        };
     }
 }

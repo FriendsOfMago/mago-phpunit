@@ -22,6 +22,7 @@ use function max;
  * @internal
  *
  * @mago-expect lint:cyclomatic-complexity
+ * @mago-expect lint:kan-defect
  */
 final class TestWithSets
 {
@@ -40,7 +41,34 @@ final class TestWithSets
         'dataproviderclosure',
     ];
 
+    /**
+     * The lowercased short names of the attributes that give a test data.
+     */
+    private const DATA = ['dataprovider', 'dataproviderexternal', 'dataproviderclosure', 'testwith', 'testwithjson'];
+
     private function __construct() {}
+
+    /**
+     * Whether the attribute gives a test data, such as `#[DataProvider]` or `#[TestWith]`.
+     */
+    public static function isDataAttribute(string $name): bool
+    {
+        return in_array(PHPUnitAttributes::shortName($name), self::DATA, strict: true);
+    }
+
+    /**
+     * Whether the test gets data from a data provider, or from a `TestWith` attribute or tag.
+     */
+    public static function givesData(TestClass $test, MethodMetadataProjection $method): bool
+    {
+        foreach ($method->attributes ?? [] as $attribute) {
+            if (self::isDataAttribute($attribute->name)) {
+                return true;
+            }
+        }
+
+        return $test->methodTags($method, ['dataProvider', 'testWith']) !== [];
+    }
 
     /**
      * The data sets of the test in PHPUnit's order, and the location of its first `#[TestWith*]` next to a

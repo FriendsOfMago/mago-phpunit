@@ -204,6 +204,7 @@ Each check reports an analyzer issue with a `phpunit/` code.
 | `phpunit/assert-same-count` | warning | `assertSame($n, count($value))` or `assertSame($n, $value->count())`, where `assertCount()` is clearer |
 | `phpunit/invalid-data-provider` | error, or warning in two cases | a data provider or data set that PHPUnit can't use, listed under [Data providers](#data-providers) |
 | `phpunit/data-provider-mismatch` | error, or warning in one case | a data set that doesn't fit the test's parameters, listed under [Data providers](#data-providers) |
+| `phpunit/dependency-mismatch` | error | a result of a test's dependency that doesn't fit its parameter, listed under [Data providers](#data-providers) |
 | `phpunit/missing-parent-call` | warning | a `setUp()` or `tearDown()` that doesn't call the parent's, when a parent class other than `TestCase` has one |
 | `phpunit/invalid-covers` | warning | a covers tag or attribute that PHPUnit can't use, listed under [Coverage](#coverage) |
 | `phpunit/redundant-covers` | warning | a method's `@covers Foo` when the class already has `@covers Foo` |
@@ -383,6 +384,18 @@ The data sets of `#[TestWith]` and `#[TestWithJson]` attributes, and of `@testWi
 10 and 11, are matched the same way. PHPUnit ignores them on a test with a data provider, and so
 does the extension. For a `#[TestWithJson]` attribute with JSON that isn't valid, PHPUnit stops the
 whole run, even on a test with a data provider.
+
+The result of each dependency is matched with the parameter it fills, and a result that doesn't fit
+is a `dependency-mismatch` error. PHPUnit runs the test with strict types, so the test fails with a
+`TypeError`. The result has the native return type of the test it comes from. A test that calls
+`expectException()` may pass null instead, so null is taken into account for it. A test without a
+native return type isn't checked. On PHPUnit 10, a test that returns `void` passes null. The results
+fill the first parameters of a test without data. In a test with data, they come after the values of
+each data set. The results after a data set with string keys aren't checked on PHPUnit 11 and later,
+since PHPUnit fails the test. A dependency named by a constant, such as `#[Depends(self::TARGET)]`,
+is resolved. A dependency that can't be used by PHPUnit, such as a method name in another case,
+isn't checked. Neither are the tests of a class with its own `invokeTestMethod()` or a test declared
+in a trait.
 
 ### Coverage
 

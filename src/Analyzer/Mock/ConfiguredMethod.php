@@ -13,7 +13,7 @@ use Mago\Sdk\Analyzer\Type;
 use Mago\Sdk\Analyzer\Type\NamedObjectType;
 use Mago\Sdk\Analyzer\Type\Visibility;
 use Mago\Sdk\Syntax\CallExpression;
-use MagoPHPUnit\Analyzer\Prophecy\ReturnCheck;
+use MagoPHPUnit\Internal\Type\Bottom;
 use MagoPHPUnit\Internal\Type\Types;
 
 use function array_map;
@@ -119,7 +119,7 @@ final class ConfiguredMethod
      */
     public function bottom(): ?string
     {
-        return ReturnCheck::bottom($this->returnType);
+        return Bottom::of($this->returnType);
     }
 
     /**

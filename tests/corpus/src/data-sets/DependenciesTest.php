@@ -4,8 +4,7 @@
  * @file
  * Data sets of tests with dependencies. The cases:
  *
- * - Dependencies with results that can't be counted. The reports that depend on the count are left
- *   out for them.
+ * - A dependency named by a constant, which is resolved.
  * - From PHPUnit 11 on, a test that returns `void` or `never` doesn't pass a result to the tests
  *   that depend on it. PHPUnit 10 passes null.
  * - PHPUnit 11 stops passing the results of a test's dependencies at the first one that returns
@@ -24,8 +23,6 @@ use PHPUnit\Framework\TestCase;
 
 final class DependencyTargetsTest extends TestCase
 {
-    public const TARGET = 'testValue';
-
     public function testValue(): string
     {
         $this->addToAssertionCount(1);
@@ -39,32 +36,15 @@ final class DependencyTargetsTest extends TestCase
     }
 
     /**
-     * A target named by a constant isn't resolved.
-     */
-    #[Depends(self::TARGET)]
-    #[DataProvider('named')]
-    public function testConstantTarget(int $number): void
-    {
-        $this->assertGreaterThan(0, $number);
-    }
-
-    /**
      * PHPUnit 11 stops at the first void target. PHPUnit 12 skips it.
+     * PHPUnit 10 passes null for it.
      */
     #[Depends('testVoid')]
     #[Depends('testValue')]
     #[DataProvider('single')]
-    public function testVoidAndValue(int $number, string $value = ''): void
+    public function testVoidAndValue(int $number, ?string $value = ''): void
     {
-        $this->assertGreaterThan(0, $number + strlen($value));
-    }
-
-    /**
-     * @return iterable<array{number: int}>
-     */
-    public static function named(): iterable
-    {
-        yield ['number' => 1];
+        $this->assertGreaterThan(0, $number + strlen($value ?? ''));
     }
 
     /**
@@ -210,5 +190,38 @@ final class VoidDependencyFirstTest extends TestCase
     public static function valueFirst(): iterable
     {
         yield [1];
+    }
+}
+
+// Corpus: PHPUnit 11 and later.
+final class ConstantDependencyTest extends TestCase
+{
+    public const TARGET = 'testValue';
+
+    public function testValue(): string
+    {
+        $this->addToAssertionCount(1);
+
+        return 'value';
+    }
+
+    /**
+     * A target named by a constant is resolved. Its result comes after a
+     * data set with string keys, which fails.
+     */
+    #[Depends(self::TARGET)]
+    #[DataProvider('named')]
+    public function testConstantTarget(int $number): void
+    {
+        $this->assertGreaterThan(0, $number);
+    }
+
+    /**
+     * @return iterable<array{number: int}>
+     */
+    public static function named(): iterable
+    {
+        // @mago-expect analysis:phpunit/data-provider-mismatch
+        yield ['number' => 1];
     }
 }

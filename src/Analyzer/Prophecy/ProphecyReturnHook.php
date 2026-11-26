@@ -12,6 +12,7 @@ use Mago\Sdk\Analyzer\Type;
 use Mago\Sdk\Reporting\Level;
 use Mago\Sdk\Syntax\CallExpression;
 use MagoPHPUnit\Analyzer\Support\Reporter;
+use MagoPHPUnit\Internal\Type\Bottom;
 use MagoPHPUnit\Internal\Type\TypeText;
 
 use function array_map;
@@ -84,7 +85,7 @@ final class ProphecyReturnHook implements MethodCallAnalysisHook
 
         $name = "{$class}::{$method->originalName}()";
         $promise = self::promise($call->getName($context->source) ?? '');
-        $bottom = ReturnCheck::bottom($method->declaredReturnType?->type);
+        $bottom = Bottom::of($method->declaredReturnType?->type);
         if ($bottom !== null) {
             self::reportBottom($context, $name, $promise, $bottom);
 

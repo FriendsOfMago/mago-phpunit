@@ -12,6 +12,7 @@ use Mago\Sdk\Syntax\NodeKind;
 use MagoPHPUnit\Analyzer\TestClass\Covers\CoversCheck;
 use MagoPHPUnit\Analyzer\TestClass\DataSets\DataProviderCheck;
 use MagoPHPUnit\Analyzer\TestClass\DataSets\DataProviderDataCheck;
+use MagoPHPUnit\Analyzer\TestClass\DataSets\DependencyCheck;
 use MagoPHPUnit\Analyzer\TestClass\DataSets\TestWithCheck;
 use MagoPHPUnit\Internal\Declaration\DeclaredClass;
 use MagoPHPUnit\Internal\Text\Docblocks;
@@ -31,7 +32,7 @@ final class TestClassHook implements ClassLikeAnalysisHook
     /**
      * The annotations and the names of the PHPUnit attributes read by the checks.
      */
-    private const CHECKED = '@(?:backup|covers|dataProvider|depends|group|preserveGlobalState|requires|testdox|testWith|ticket|uses)|DataProvider|TestWith|Covers(?:Class|Trait|Method|Function)|Requires';
+    private const CHECKED = '@(?:backup|covers|dataProvider|depends|group|preserveGlobalState|requires|testdox|testWith|ticket|uses)|DataProvider|TestWith|Depends|Covers(?:Class|Trait|Method|Function)|Requires';
 
     /**
      * Text that at least one check can report on: annotations, the names of
@@ -99,6 +100,7 @@ final class TestClassHook implements ClassLikeAnalysisHook
         DataProviderCheck::check($test);
         DataProviderDataCheck::check($test);
         TestWithCheck::check($test);
+        DependencyCheck::check($test);
         ParentCallCheck::check($test);
         CoversCheck::check($test);
         RequiresCheck::check($test);
