@@ -206,7 +206,7 @@ Each check reports an analyzer issue with a `phpunit/` code.
 | `phpunit/data-provider-mismatch` | error, or warning in one case | a data set that doesn't fit the test's parameters, listed under [Data providers](#data-providers) |
 | `phpunit/dependency-mismatch` | error | a result of a test's dependency that doesn't fit its parameter, listed under [Data providers](#data-providers) |
 | `phpunit/missing-parent-call` | warning | a `setUp()` or `tearDown()` that doesn't call the parent's, when a parent class other than `TestCase` has one |
-| `phpunit/invalid-covers` | warning | a covers tag or attribute that PHPUnit can't use, listed under [Coverage](#coverage) |
+| `phpunit/invalid-covers` | warning | a covers or uses tag or attribute that can't be used by PHPUnit, listed under [Coverage](#coverage) |
 | `phpunit/redundant-covers` | warning | a method's `@covers Foo` when the class already has `@covers Foo` |
 | `phpunit/requires-without-operator` | warning | a version such as `#[RequiresPhp('8.2')]` without an operator like `>=` |
 | `phpunit/incomplete-requires-version` | warning | a compared version without all of a major, minor and patch level, such as `'>= 8.1'` or `'8.1dev'`, on PHPUnit 12.5 and later, where PHPUnit warns about it |
@@ -415,6 +415,13 @@ An `invalid-covers` warning is reported for:
   `@coversDefaultClass`.
 
 PHPUnit warns about each of these and leaves the test out of the coverage report.
+
+The `#[UsesClass]`, `#[UsesTrait]`, `#[UsesMethod]` and `#[UsesFunction]` attributes, and the
+`@uses` and `@usesDefaultClass` tags on PHPUnit 10 and 11, are checked with the same rules. PHPUnit
+checks their targets like covers targets. A `@uses` tag for an interface is accepted. Method tags
+are only read on test methods, and a class or test with `CoversNothing` isn't checked, since PHPUnit
+doesn't collect coverage for it. On PHPUnit 10 and 11, a test's own `@covers` tag overrides the
+class's `CoversNothing`.
 
 ### Annotations
 

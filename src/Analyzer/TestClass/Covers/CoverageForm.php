@@ -5,7 +5,11 @@ declare(strict_types=1);
 namespace MagoPHPUnit\Analyzer\TestClass\Covers;
 
 /**
- * The way a coverage target is written: a `@covers` tag or one of the covers attributes.
+ * The way a coverage target is written: a `@covers` or `@uses` tag, or a covers or uses attribute.
+ *
+ * Each attribute case stands for the `Covers*` attribute and the matching
+ * `Uses*` attribute, which have the same rules. A tag case has the tag name
+ * as its value.
  *
  * @internal
  */
@@ -14,13 +18,26 @@ enum CoverageForm: string
     /**
      * A `@covers` tag, mapped like `Class`, `Class::name` or `name`.
      */
-    case Annotation = '@covers';
+    case Annotation = 'covers';
 
-    case ClassAttribute = 'CoversClass';
+    /**
+     * A `@uses` tag, mapped like a `@covers` tag. An interface is accepted.
+     */
+    case UsesAnnotation = 'uses';
 
-    case TraitAttribute = 'CoversTrait';
+    case ClassAttribute = 'class';
 
-    case MethodAttribute = 'CoversMethod';
+    case TraitAttribute = 'trait';
 
-    case FunctionAttribute = 'CoversFunction';
+    case MethodAttribute = 'method';
+
+    case FunctionAttribute = 'function';
+
+    /**
+     * Whether the target is written in a tag.
+     */
+    public function isAnnotation(): bool
+    {
+        return $this === self::Annotation || $this === self::UsesAnnotation;
+    }
 }

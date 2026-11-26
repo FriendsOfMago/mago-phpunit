@@ -5,14 +5,17 @@ declare(strict_types=1);
 namespace MagoPHPUnit\Analyzer\TestClass\Covers;
 
 use Mago\Sdk\Analyzer\Metadata\MetadataFlags;
+use Mago\Sdk\Analyzer\Metadata\MethodMetadataProjection;
 use Mago\Sdk\SourceLocation;
 use Mago\Sdk\Span;
 use MagoPHPUnit\Analyzer\Support\Reporter;
 use MagoPHPUnit\Analyzer\TestClass\PHPUnitAttributes;
 use MagoPHPUnit\Analyzer\TestClass\TestClass;
-use MagoPHPUnit\Internal\PHPUnitFeatures;
 use MagoPHPUnit\Internal\Text\Docblocks;
 
+use function array_filter;
+use function array_key_exists;
+use function array_values;
 use function count;
 use function explode;
 use function ltrim;
@@ -23,7 +26,7 @@ use function stripos;
 use function strtolower;
 
 /**
- * Reports covers tags and attributes for missing code, built-in code, interfaces or other rejected targets.
+ * Reports covers and uses tags and attributes for missing code, built-in code, interfaces or other rejected targets.
  *
  * @internal
  *
@@ -36,91 +39,133 @@ final class CoversCheck
 
     public const REDUNDANT_CODE = 'redundant-covers';
 
-    private const TAGS = ['covers', 'coversDefaultClass'];
+    public const LEFT_OUT_HELP = 'PHPUnit warns about the target and leaves the test out of the coverage report.';
 
-    /**
-     * The covers attributes, with the names of their target and member arguments.
-     */
-    private const ATTRIBUTES = [
-        [CoverageForm::ClassAttribute,    'className',    null],
-        [CoverageForm::TraitAttribute,    'traitName',    null],
-        [CoverageForm::MethodAttribute,   'className',    'methodName'],
-        [CoverageForm::FunctionAttribute, 'functionName', null],
-    ];
+    public const BUILTIN_HELP = 'Only user-defined code is a valid target. ' . self::LEFT_OUT_HELP;
 
-    private const LEFT_OUT_HELP = 'PHPUnit warns about the target and leaves the test out of the coverage report.';
-
-    private const BUILTIN_HELP = 'PHPUnit only covers user-defined code. ' . self::LEFT_OUT_HELP;
-
-    private const PREFIXED_HELP =
+    public const PREFIXED_HELP =
         'PHPUnit 12 and later look the name up as written. Drop the backslash. ' . self::LEFT_OUT_HELP;
 
     private function __construct() {}
 
     /**
-     * Checks the class covers attributes and the class and method coverage tags.
+     * Checks the class covers and uses attributes and the class and test method coverage tags.
+     *
+     * PHPUnit checks uses targets like covers targets, and warns about each
+     * target that can't be used. PHPUnit doesn't collect coverage for a test
+     * with `CoversNothing`, so its targets aren't checked. On PHPUnit 10 and
+     * 11, a method `@covers` tag overrides the class `@coversNothing`.
      */
     public static function check(TestClass $test): void
     {
-        // Only method tags are checked on an abstract class. PHPUnit reads class tags only from the
-        // concrete test class. Attributes aren't inherited in PHP. PHPUnit reads method tags on the
-        // inherited method.
+        $tests = array_values(array_filter($test->methods(), $test->isTest(...)));
+
+        // Only method tags are checked on an abstract class. PHPUnit reads class tags only from
+        // the concrete test class, and method tags on the inherited method. Attributes aren't
+        // inherited in PHP, so they aren't read on an abstract class either.
         $abstract = $test->class->flags->contains(MetadataFlags::ABSTRACT);
-        if (!$abstract) {
-            self::checkAttributes($test);
-        }
-
-        // The `@covers` and `@coversDefaultClass` tags count only on PHPUnit 10 and 11.
-        // PHPUnit warns about a name that doesn't resolve. The test is left out of the
-        // coverage report. This matches phpstan-phpunit's `ClassCoversExistsRule` and
-        // `ClassMethodCoversExistsRule`, plus the attributes.
-        if (!str_contains($test->contents, '@covers')) {
-            return;
-        }
-
-        $default = null;
-        $classCovers = [];
         $docblock = $abstract ? null : $test->annotationDocblock();
-        if ($docblock !== null) {
-            $tags = self::tags($test, $docblock);
-            $default = self::defaultClass($test, $tags);
-            foreach ($tags as $tag) {
-                if ($tag['name'] !== 'covers') {
-                    continue;
-                }
-
-                $classCovers[self::target($tag['value'])] = true;
-                self::checkValue($test, $tag['value'], $default, $tag['span']);
-            }
+        $classNothing = $docblock !== null && CollectedTests::coversNothing($test, $docblock);
+        $nothingAttribute = PHPUnitAttributes::of($test->class, name: 'CoversNothing') !== [];
+        $methodCovers = ($classNothing || $nothingAttribute) && CollectedTests::methodCovers($test, $tests);
+        if (!$abstract && CollectedTests::readsAttributes($tests, $nothingAttribute, $methodCovers)) {
+            CoverageAttributes::check($test);
         }
 
-        // Skip the method docblocks when the class text doesn't mention
-        // `@covers`.
-        foreach (stripos($test->text, needle: '@covers') !== false ? $test->methods() : [] as $method) {
-            $methodDocblock = $test->methodAnnotationDocblock($method);
-            foreach ($methodDocblock === null ? [] : self::tags($test, $methodDocblock) as $tag) {
-                if ($tag['name'] === 'coversDefaultClass') {
-                    self::report($test, message: '@coversDefaultClass is only read on the class.', where: $tag['span']);
-                    continue;
-                }
-
-                // A method `@covers` tag with a target also named on the class is redundant.
-                // This matches phpstan-phpunit's `ClassMethodCoversExistsRule`.
-                if ($classCovers[self::target($tag['value'])] ?? false) {
-                    $test->reporter->warning(self::REDUNDANT_CODE, Reporter::issue(
-                        "The class already has @covers {$tag['value']}, so this tag is redundant.",
-                        where: $tag['span'],
-                        help: "Remove this tag. PHPUnit uses the class's @covers tags for every test in the class.",
-                    ));
-                }
-
-                self::checkValue($test, $tag['value'], $default, $tag['span']);
-            }
+        $classTags = $docblock !== null && (!$classNothing || $methodCovers) ? $docblock : null;
+        foreach ([CoverageForm::Annotation, CoverageForm::UsesAnnotation] as $form) {
+            self::checkTags($test, $form, $classTags, [$tests, $classNothing]);
         }
     }
 
     /**
-     * The `@covers` and `@coversDefaultClass` tags of a docblock.
+     * Checks the class and test method `@covers` or `@uses` tags, and the default class tag.
+     *
+     * @param ?Span $docblock The class docblock, when its tags are read by PHPUnit.
+     * @param array{list<MethodMetadataProjection>, bool} $tests The test methods, and whether the class has
+     *   `@coversNothing`.
+     */
+    private static function checkTags(TestClass $test, CoverageForm $form, ?Span $docblock, array $tests): void
+    {
+        // The tags count only on PHPUnit 10 and 11. PHPUnit warns about a name that doesn't
+        // resolve. The test is left out of the coverage report. This matches phpstan-phpunit's
+        // `ClassCoversExistsRule` and `ClassMethodCoversExistsRule`, for `@covers` tags.
+        [$methods, $classNothing] = $tests;
+        $kind = $form->value;
+        $written = "@{$kind}";
+        if (!str_contains($test->contents, $written)) {
+            return;
+        }
+
+        $default = null;
+        $classTargets = [];
+        if ($docblock !== null) {
+            $tags = self::tags($test, $docblock, $kind);
+            $default = self::defaultClass($test, $tags, $kind);
+            foreach ($tags as $tag) {
+                if ($tag['name'] !== $kind) {
+                    continue;
+                }
+
+                $classTargets[self::target($tag['value'])] = true;
+                self::checkValue($test, $tag['value'], $form, $default, $tag['span']);
+            }
+        }
+
+        // Only class `@covers` tags make a method tag redundant. The method docblocks are
+        // skipped when the class text doesn't mention the tag.
+        $classTargets = $form === CoverageForm::Annotation ? $classTargets : [];
+        foreach (stripos($test->text, needle: $written) !== false ? $methods : [] as $method) {
+            $methodDocblock = $test->methodAnnotationDocblock($method);
+            if ($methodDocblock === null || !CollectedTests::collects($test, $methodDocblock, $classNothing)) {
+                continue;
+            }
+
+            self::checkMethodTags($test, $methodDocblock, $form, $default, $classTargets);
+        }
+    }
+
+    /**
+     * Checks the `@covers` or `@uses` tags of a test method's docblock.
+     *
+     * A method `@covers` tag with a target also named on the class is
+     * redundant. This matches phpstan-phpunit's `ClassMethodCoversExistsRule`.
+     *
+     * @param array<string, true> $classTargets The class `@covers` targets.
+     */
+    private static function checkMethodTags(
+        TestClass $test,
+        Span $docblock,
+        CoverageForm $form,
+        ?string $default,
+        array $classTargets,
+    ): void {
+        $kind = $form->value;
+        foreach (self::tags($test, $docblock, $kind) as $tag) {
+            if ($tag['name'] === "{$kind}DefaultClass") {
+                self::report(
+                    $test,
+                    "@{$kind}DefaultClass is only read on the class.",
+                    $tag['span'],
+                    'PHPUnit ignores it on a method. Move it to the class docblock.',
+                );
+                continue;
+            }
+
+            if (array_key_exists(self::target($tag['value']), $classTargets)) {
+                $test->reporter->warning(self::REDUNDANT_CODE, Reporter::issue(
+                    "The class already has @covers {$tag['value']}, so this tag is redundant.",
+                    where: $tag['span'],
+                    help: "Remove this tag. PHPUnit uses the class's @covers tags for every test in the class.",
+                ));
+            }
+
+            self::checkValue($test, $tag['value'], $form, $default, $tag['span']);
+        }
+    }
+
+    /**
+     * The `@covers` and `@coversDefaultClass` tags of a docblock, or the `@uses` and `@usesDefaultClass` tags.
      *
      * Each value is cleaned the same way as in PHPUnit. Trailing parentheses
      * and whitespace are dropped, and the value ends at the first space. A tag
@@ -129,10 +174,10 @@ final class CoversCheck
      *
      * @return list<array{name: string, value: string, gap: string, span: Span}>
      */
-    private static function tags(TestClass $test, Span $docblock): array
+    private static function tags(TestClass $test, Span $docblock, string $kind): array
     {
         $tags = [];
-        foreach (Docblocks::tags($test->contents, $docblock, self::TAGS) as $tag) {
+        foreach (Docblocks::tags($test->contents, $docblock, [$kind, "{$kind}DefaultClass"]) as $tag) {
             if ($tag['gap'] === '') {
                 continue;
             }
@@ -158,17 +203,17 @@ final class CoversCheck
     }
 
     /**
-     * The class named by `@coversDefaultClass`.
+     * The class named by `@coversDefaultClass` or `@usesDefaultClass`.
      *
      * Reports a second tag, and a class that doesn't exist.
      *
      * @param list<array{name: string, value: string, gap: string, span: Span}> $tags
      */
-    private static function defaultClass(TestClass $test, array $tags): ?string
+    private static function defaultClass(TestClass $test, array $tags, string $kind): ?string
     {
         $defaults = [];
         foreach ($tags as $tag) {
-            if ($tag['name'] !== 'coversDefaultClass') {
+            if ($tag['name'] !== "{$kind}DefaultClass") {
                 continue;
             }
 
@@ -176,7 +221,12 @@ final class CoversCheck
         }
 
         if (count($defaults) > 1) {
-            self::report($test, message: '@coversDefaultClass is defined more than once.', where: $defaults[1]['span']);
+            self::report(
+                $test,
+                "@{$kind}DefaultClass is defined more than once.",
+                $defaults[1]['span'],
+                'PHPUnit stops the run with an error for a class with two of these tags.',
+            );
         }
 
         $first = $defaults[0] ?? null;
@@ -186,7 +236,12 @@ final class CoversCheck
 
         $class = ltrim($first['value'], characters: '\\');
         if ($class === '' || !$test->codebase->classLikeExists($class)) {
-            self::report($test, "@coversDefaultClass names {$first['value']}, which isn't a class.", $first['span']);
+            self::report(
+                $test,
+                "@{$kind}DefaultClass names {$first['value']}, which isn't a class.",
+                $first['span'],
+                "PHPUnit puts this class in front of each `@{$kind} ::name` value.",
+            );
 
             return null;
         }
@@ -195,11 +250,18 @@ final class CoversCheck
     }
 
     /**
-     * Checks one `@covers` value: a class, `Class::method`, a function, or
-     * `::method` of the default class.
+     * Checks one `@covers` or `@uses` value, such as a class, `Class::method`, a function or `::method`.
+     *
+     * A `::method` value is a method of the default class.
      */
-    private static function checkValue(TestClass $test, string $value, ?string $default, Span $where): void
-    {
+    private static function checkValue(
+        TestClass $test,
+        string $value,
+        CoverageForm $form,
+        ?string $default,
+        Span $where,
+    ): void {
+        $kind = $form->value;
         $method = null;
         $class = ltrim($value, characters: '\\');
         if (str_contains($value, '::')) {
@@ -207,7 +269,7 @@ final class CoversCheck
         }
 
         if ($method === '' || $class === '' && $method === null) {
-            self::report($test, "@covers {$value} doesn't name anything.", $where);
+            self::report($test, "@{$kind} {$value} doesn't name anything.", $where, self::LEFT_OUT_HELP);
 
             return;
         }
@@ -231,7 +293,7 @@ final class CoversCheck
 
             self::report(
                 $test,
-                "@covers {$value} doesn't name a function, and the class doesn't have @coversDefaultClass.",
+                "@{$kind} {$value} doesn't name a function, and the class doesn't have @{$kind}DefaultClass.",
                 $where,
             );
 
@@ -244,20 +306,20 @@ final class CoversCheck
             return;
         }
 
-        $problem = CoverageTargets::problem($test->codebase, CoverageForm::Annotation, $class, $method);
+        $problem = CoverageTargets::problem($test->codebase, $form, $class, $method);
         if ($problem === null) {
             return;
         }
 
         $missing =
-            "@covers {$value} doesn't name a " . ($method === null ? 'class or function' : 'method') . ' that exists.';
+            "@{$kind} {$value} doesn't name a " . ($method === null ? 'class or function' : 'method') . ' that exists.';
         [$message, $help] = match ($problem) {
-            CoverageProblem::MissingMember => ["@covers {$value} names a method that doesn't exist.", null],
+            CoverageProblem::MissingMember => ["@{$kind} {$value} names a method that doesn't exist.", null],
             CoverageProblem::Interface => [
-                "@covers {$value} names an interface, which doesn't have code to cover.",
-                null,
+                "@{$kind} {$value} names an interface, which doesn't have any code.",
+                self::LEFT_OUT_HELP,
             ],
-            CoverageProblem::Builtin => ["@covers {$value} names code built into PHP.", self::BUILTIN_HELP],
+            CoverageProblem::Builtin => ["@{$kind} {$value} names code built into PHP.", self::BUILTIN_HELP],
             CoverageProblem::MissingClass, CoverageProblem::Trait, CoverageProblem::Inherited => [
                 $missing,
                 str_contains($value, '\\') ? null : 'PHPUnit reads the value as a fully qualified name.',
@@ -268,90 +330,9 @@ final class CoversCheck
     }
 
     /**
-     * Checks the class `CoversClass`, `CoversTrait`, `CoversMethod` and `CoversFunction` attributes.
+     * Reports an `invalid-covers` warning, with the default help when none is given.
      */
-    private static function checkAttributes(TestClass $test): void
-    {
-        $targets = [];
-        foreach (self::ATTRIBUTES as [$form, $nameArgument, $memberArgument]) {
-            foreach (PHPUnitAttributes::of($test->class, name: $form->value) as $attribute) {
-                $name = PHPUnitAttributes::string($attribute, index: 0, name: $nameArgument);
-                $member = $memberArgument === null
-                    ? null
-                    : PHPUnitAttributes::string($attribute, index: 1, name: $memberArgument);
-                if ($name !== null && ($memberArgument === null || $member !== null)) {
-                    $targets[] = [$form, $name, $member, $attribute->location];
-                }
-            }
-        }
-
-        // Every named class is fetched in one query, so the lookups below
-        // are served from the SDK's cache.
-        $names = [];
-        foreach ($targets as [$form, $name]) {
-            if ($form === CoverageForm::FunctionAttribute) {
-                continue;
-            }
-
-            $names[] = ltrim($name, characters: '\\');
-        }
-
-        $test->codebase->getMultipleClassLikes($names);
-        $asWritten = PHPUnitFeatures::mapsCoverageTargetsFromSource($test->codebase);
-        foreach ($targets as [$form, $name, $member, $location]) {
-            $problem = CoverageTargets::problem($test->codebase, $form, $name, $member);
-            if ($problem !== null) {
-                [$message, $help] = $asWritten && str_starts_with($name, '\\')
-                    ? [
-                        "{$form->value} names {$name} with a leading backslash, so PHPUnit doesn't find it.",
-                        self::PREFIXED_HELP,
-                    ]
-                    : self::attributeMessage($form, $name, $member, $problem);
-                self::report($test, $message, $location, $help);
-            }
-        }
-    }
-
-    /**
-     * The message and help for a covers attribute with a target rejected by PHPUnit.
-     *
-     * @return array{string, ?string}
-     */
-    private static function attributeMessage(
-        CoverageForm $form,
-        string $name,
-        ?string $member,
-        CoverageProblem $problem,
-    ): array {
-        $target = $member === null ? $name : "{$name}::{$member}";
-        $target .= $form === CoverageForm::MethodAttribute || $form === CoverageForm::FunctionAttribute ? '()' : '';
-        $written = $form->value;
-        return match ($problem) {
-            CoverageProblem::Builtin => ["{$written} names {$target}, which is built into PHP.", self::BUILTIN_HELP],
-            CoverageProblem::Interface => $member === null
-                ? ["{$written} names the interface {$name}, which doesn't have code to cover.", null]
-                : ["{$written} names the interface method {$target}, which doesn't have code to cover.", null],
-            CoverageProblem::Trait => [
-                "{$written} names the trait {$name}. PHPUnit 12 and later only accept a class here.",
-                'Use #[CoversTrait] instead. ' . self::LEFT_OUT_HELP,
-            ],
-            CoverageProblem::Inherited => [
-                "{$written} names {$target}, which isn't declared in {$name}. PHPUnit 12 and later only accept the "
-                    . 'class or trait where the method is declared.',
-                'Name the class or trait where the method is declared. ' . self::LEFT_OUT_HELP,
-            ],
-            CoverageProblem::MissingClass => $member === null
-                ? ["{$written} names {$name}, which doesn't exist.", null]
-                : ["{$written} names {$target}, but {$name} doesn't exist.", null],
-            CoverageProblem::MissingMember => ["{$written} names {$target}, which doesn't exist.", null],
-        };
-    }
-
-    /**
-     * Reports an `invalid-covers` warning, with the default help when none is
-     * given.
-     */
-    private static function report(
+    public static function report(
         TestClass $test,
         string $message,
         Span|SourceLocation $where,
@@ -360,7 +341,8 @@ final class CoversCheck
         $test->reporter->warning(self::CODE, Reporter::issue(
             $message,
             $where,
-            $help ?? "PHPUnit warns about a name it can't find, and the coverage report leaves the test out.",
+            $help
+            ?? "PHPUnit warns about a target that can't be found, and leaves the test out of the coverage report.",
         ));
     }
 }

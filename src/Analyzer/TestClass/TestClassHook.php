@@ -32,7 +32,7 @@ final class TestClassHook implements ClassLikeAnalysisHook
     /**
      * The annotations and the names of the PHPUnit attributes read by the checks.
      */
-    private const CHECKED = '@(?:backup|covers|dataProvider|depends|group|preserveGlobalState|requires|testdox|testWith|ticket|uses)|DataProvider|TestWith|Depends|Covers(?:Class|Trait|Method|Function)|Requires';
+    private const CHECKED = '@(?:backup|covers|dataProvider|depends|group|preserveGlobalState|requires|testdox|testWith|ticket|uses)|DataProvider|TestWith|Depends|(?:Covers|Uses)(?:Class|Trait|Method|Function)|Requires';
 
     /**
      * Text that at least one check can report on: annotations, the names of

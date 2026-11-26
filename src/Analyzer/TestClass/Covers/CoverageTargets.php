@@ -53,7 +53,7 @@ final class CoverageTargets
         // PHPUnit 10 and 11 find the target through reflection. PHP's
         // reflection ignores a leading backslash.
         if (str_starts_with($class, '\\')) {
-            if ($fromSource && $form !== CoverageForm::Annotation) {
+            if ($fromSource && !$form->isAnnotation()) {
                 return $form === CoverageForm::FunctionAttribute
                     ? CoverageProblem::MissingMember
                     : CoverageProblem::MissingClass;
@@ -67,12 +67,12 @@ final class CoverageTargets
         }
 
         $metadata = $class === '' ? null : $codebase->getClassLike($class);
-        if ($member !== null && ($form === CoverageForm::Annotation || !$fromSource)) {
+        if ($member !== null && ($form->isAnnotation() || !$fromSource)) {
             return self::mappedMethodProblem($codebase, $metadata, $member);
         }
 
         if ($metadata === null) {
-            $function = $form === CoverageForm::Annotation
+            $function = $form->isAnnotation()
                 ? self::functionProblem($codebase, $class)
                 : CoverageProblem::MissingMember;
 
@@ -118,10 +118,11 @@ final class CoverageTargets
 
         // PHPUnit 10 passes a `CoversClass` name straight to the `Mapper`.
         // A user-defined interface is accepted there. PHPUnit 10 and 11 reject
-        // a `@covers` tag for an interface.
+        // a `@covers` tag for an interface, but not a `@uses` tag.
         if ($kind === ClassLikeKind::Interface) {
             $accepted =
-                $form === CoverageForm::ClassAttribute && !PHPUnitFeatures::rejectsCoversClassInterface($codebase);
+                $form === CoverageForm::UsesAnnotation
+                || $form === CoverageForm::ClassAttribute && !PHPUnitFeatures::rejectsCoversClassInterface($codebase);
 
             return $accepted ? null : CoverageProblem::Interface;
         }
