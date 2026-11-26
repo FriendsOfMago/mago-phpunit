@@ -108,14 +108,15 @@ final class MockReturnHook implements MethodCallAnalysisHook
         }
 
         $caller = "{$builder}()";
+        $scope = new StubScope($context, $context->source, $method);
         if ($builder === 'willReturn') {
-            self::checkWillReturn($context, $call, $method);
+            self::checkWillReturn($scope, $call);
 
             return;
         }
 
         $bottom = $method->bottom();
-        foreach (self::returned($context, $call, $builder, $method) as [$span, $values]) {
+        foreach (self::returned($scope, $call, $builder) as [$span, $values]) {
             if ($bottom === 'never' && $values !== []) {
                 self::reportNever($context, $method, $caller);
 
@@ -134,22 +135,18 @@ final class MockReturnHook implements MethodCallAnalysisHook
      *
      * @return list<array{Span, list<ReturnedValue>}>
      */
-    private static function returned(
-        NodeAnalysisContext $context,
-        CallExpression $call,
-        string $builder,
-        ConfiguredMethod $method,
-    ): array {
+    private static function returned(StubScope $scope, CallExpression $call, string $builder): array
+    {
+        $context = $scope->context;
+        $method = $scope->method;
         $first = $call->arguments[0] ?? null;
         $type = $context->argumentTypes[0] ?? null;
         $values = match ($builder) {
             'willReturnOnConsecutiveCalls' => null,
-            'willReturnSelf' => [new ReturnedValue($method->double, fromStub: true)],
-            'willReturnCallback' => $first === null
-                ? null
-                : ArgumentStubs::callback($context, $first->value, $type, $method),
+            'willReturnSelf' => [new ReturnedValue($method->double, fromStub: true, exact: $scope->isDoubleExact())],
+            'willReturnCallback' => $first === null ? null : ArgumentStubs::callback($scope, $first->value, $type),
             'willReturnArgument' => ArgumentStubs::argument($method, $type?->getLiteralInt()),
-            'will' => $first === null ? null : StubbedValue::of($context, $first->value, $type, $method),
+            'will' => $first === null ? null : StubbedValue::of($scope, $first->value, $type),
             default => ValueMapRows::values($type, $method, filled: true, strict: $builder === 'willReturnStrictMap'),
         };
 
@@ -160,8 +157,8 @@ final class MockReturnHook implements MethodCallAnalysisHook
         }
 
         $returned = [];
-        foreach (self::givenValues($context, $call) as [$node, $value]) {
-            $returned[] = [$node->span, StubbedValue::of($context, $node, $value, $method) ?? []];
+        foreach (self::givenValues($scope, $call) as [$valueScope, $node, $value, $span]) {
+            $returned[] = [$span, StubbedValue::of($valueScope, $node, $value) ?? []];
         }
 
         return $returned;
@@ -174,11 +171,10 @@ final class MockReturnHook implements MethodCallAnalysisHook
      * passes the check, or any value for a return type that PHPUnit doesn't
      * check, is checked when the double returns it.
      */
-    private static function checkWillReturn(
-        NodeAnalysisContext $context,
-        CallExpression $call,
-        ConfiguredMethod $method,
-    ): void {
+    private static function checkWillReturn(StubScope $scope, CallExpression $call): void
+    {
+        $context = $scope->context;
+        $method = $scope->method;
         $bottom = $method->bottom();
         if ($bottom !== null) {
             Reporter::report(
@@ -198,51 +194,59 @@ final class MockReturnHook implements MethodCallAnalysisHook
         }
 
         $takesAny = ReturnFit::takesAnyAtSetUp($method->returnType);
-        foreach (self::givenValues($context, $call) as [$node, $value]) {
+        foreach (self::givenValues($scope, $call) as [$valueScope, $node, $value, $span]) {
             if ($takesAny) {
-                $values = StubbedValue::of($context, $node, $value, $method) ?? [];
-                self::checkValues($context, $method, 'willReturn()', $values, $node->span);
+                $values = StubbedValue::of($valueScope, $node, $value) ?? [];
+                self::checkValues($context, $method, 'willReturn()', $values, $span);
                 continue;
             }
 
-            $fit = ReturnFit::atSetUp($context, $value, $method->returnType, Doubles::isCreatedBy($context, $node));
+            $exact = $valueScope->isExact($node, $value);
+            $fit = ReturnFit::atSetUp($context, $value, $method->returnType, $exact);
             if ($fit === ReturnFit::FITS) {
-                $values = StubbedValue::isStub($value) ? StubbedValue::of($context, $node, $value, $method) ?? [] : [];
-                self::checkValues($context, $method, 'willReturn()', $values, $node->span);
+                $values = StubbedValue::isStub($value) ? StubbedValue::of($valueScope, $node, $value) ?? [] : [];
+                self::checkValues($context, $method, 'willReturn()', $values, $span);
                 continue;
             }
 
             if ($fit !== null) {
-                self::reportSetUp($context, $method, $fit, $value, $node->span);
+                self::reportSetUp($context, $method, $fit, $value, $span);
             }
         }
     }
 
     /**
      * The values given to `willReturn()` or `willReturnOnConsecutiveCalls()`,
-     * with their types. An unpacked array that's written out, such as
-     * `...[1, 2]`, gives its elements. Other unpacked values are left out.
+     * with their scope, types and the span to report. An unpacked array
+     * that's written out, such as `...[1, 2]`, or held in a variable that's
+     * assigned once, gives its elements. Other unpacked values are left out.
      *
-     * @return list<array{Node, Type}>
+     * @return list<array{StubScope, Node, Type, Span}>
      */
-    private static function givenValues(NodeAnalysisContext $context, CallExpression $call): array
+    private static function givenValues(StubScope $scope, CallExpression $call): array
     {
         $given = [];
-        $unpacked = [];
         foreach ($call->arguments as $index => $argument) {
             if (!$argument->unpacked) {
-                $type = $context->argumentTypes[$index] ?? null;
-                $given = $type === null ? $given : [...$given, [$argument->value, $type]];
+                $type = $scope->context->argumentTypes[$index] ?? null;
+                $given = $type === null
+                    ? $given
+                    : [...$given, [$scope, $argument->value, $type, $argument->value->span]];
                 continue;
             }
 
-            $unpacked = [...$unpacked, ...(StubSyntax::elements($context->source, $argument->value) ?? [])];
-        }
+            $found = $scope->elements($argument->value);
+            if ($found === null) {
+                continue;
+            }
 
-        $types = $unpacked === [] ? [] : $context->analysis->getMultipleExpressionTypes($unpacked);
-        foreach ($unpacked as $position => $node) {
-            $type = $types[$position] ?? null;
-            $given = $type === null ? $given : [...$given, [$node, $type]];
+            [$elementScope, $elements] = $found;
+            $types = $elements === [] ? [] : $scope->context->analysis->getMultipleExpressionTypes($elements);
+            foreach ($elements as $position => $element) {
+                $type = $types[$position] ?? null;
+                $span = $elementScope === $scope ? $element->span : $argument->value->span;
+                $given = $type === null ? $given : [...$given, [$elementScope, $element, $type, $span]];
+            }
         }
 
         return $given;

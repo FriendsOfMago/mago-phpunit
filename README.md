@@ -262,10 +262,11 @@ A value that fits only in part, such as an `?int` for an `int`, is a warning.
 
 A method without a native return type takes any value, and so does a `mixed` or `callable` one.
 An object is reported when its class can't be the returned one. That's the case for a double of
-another class created right there, such as `$this->createStub(Foo::class)`, for an enum case, and
-for an instance of an unrelated class when both are classes. An object typed as an interface
-isn't reported, since its class may implement the returned one too. A double typed `MockObject`
-alone, or with a wider type than its class, isn't reported either.
+another class created right there, such as `$this->createStub(Foo::class)`, or held in a local
+variable as described below, for an enum case, and for an instance of an unrelated class when both
+are classes. An object typed as an interface isn't reported, since its class may implement the
+returned one too. A double typed `MockObject` alone, or with a wider type than its class, isn't
+reported either.
 
 PHPUnit doesn't check the values given to `willReturnOnConsecutiveCalls()`, or the values
 returned by a stub. It also takes any `willReturn()` value for a union of two or more types and
@@ -281,20 +282,41 @@ A stub is called first. It's given to `will()` or `willReturnOnConsecutiveCalls(
 
 - `ReturnStub` returns its value, and `ReturnSelf` returns the double.
 - `ReturnArgument` returns the argument, of the parameter's native type. A variadic parameter takes
-  the index and those after it. An index past the parameters gets `null`, unless the call passes
-  more arguments, so it's a warning.
-- `ReturnCallback` returns the callback's result: the return type of a closure or a first-class
-  callable, declared or inferred, or the native return type of the function or method it names.
+  the index and those after it. A parameter type that fits only in part isn't reported, since the
+  test may only pass values that fit. An index past the parameters gets `null`, unless the call
+  passes more arguments, so it's a warning.
+- `ReturnCallback` returns the callback's result. A first-class callable, a function name such as
+  `'strlen'`, an array such as `[$this, 'helper']` and an invokable object have the native return
+  type of the function or method. A closure has the type inferred by Mago from its body, which is
+  only reported when no part of it fits. A closure that takes a variable by reference, and a
+  callable typed by a docblock, aren't checked.
 - `ReturnValueMap` returns the last value of a matching row. A row matches a call when it has one
   value for each parameter plus the returned value, and `willReturnMap()` fills in a short row with
-  the parameters' defaults. A map without such a row returns `null`, unless it's strict, as created by `willReturnStrictMap()`
-  or with the `$strict` argument of PHPUnit 13.
+  the parameters' defaults. A map without such a row returns `null`, unless it's strict, as created
+  by `willReturnStrictMap()` or with the `$strict` argument of PHPUnit 13.
 - `ConsecutiveCalls` returns its values in turn, and calls the stubs among them.
 
-An unpacked array that's written out, such as `...[1, 2]`, gives its values. The results of other
-stubs aren't checked. A `void` method drops the values. A `never` method is reported when the
-double gets a value, other than from a stub that throws, since the double then ends without
-throwing.
+The results of other stubs aren't checked. A `void` method drops the values. A `never` method is
+reported when the double gets a value, other than from a stub that throws, since the double then
+ends without throwing.
+
+An unpacked array that's written out, such as `...[1, 2]`, gives its values. A stub, an array, a
+closure or a double held in a local variable is followed to the expression assigned to it, such as
+`$stub = new ReturnStub(5)` or `$owner = $this->createStub(Owner::class)`. That's done when the
+variable is assigned once, by a statement that's a plain `=` assignment, in the method's body
+before the call, and no other use can change it. A variable isn't followed when it's:
+
+- assigned again, in a branch or a loop, by a compound assignment such as `.=`, or through an
+  element such as `$list[] = ...`;
+- taken by `&` reference, incremented or decremented, or used in `foreach`, `global`, `static`,
+  `unset`, a `catch` clause or a closure's `use` clause;
+- passed to a function, method or constructor whose parameter isn't known to take it by value,
+  such as `array_shift($list)`;
+- in a body with `eval`, `include`, `require`, `goto`, `extract()`, `parse_str()` or variable
+  variables.
+
+A `ConsecutiveCalls` stub reached through a variable that's read more than once, also through a
+list that holds it, isn't followed, since its values are used up by every method it's given to.
 
 ### Prophecy calls
 

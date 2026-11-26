@@ -56,23 +56,19 @@ final class StubbedValue
      *
      * @return list<ReturnedValue>|null
      */
-    public static function of(
-        NodeAnalysisContext $context,
-        Node $node,
-        ?Type $value,
-        ConfiguredMethod $method,
-        int $depth = 0,
-    ): ?array {
+    public static function of(StubScope $scope, Node $node, ?Type $value, int $depth = 0): ?array
+    {
         if ($value === null) {
             return null;
         }
 
+        $context = $scope->context;
         $stub = self::stub($value);
         if ($stub === null) {
             return (
                 self::isCustomStub($context, $value)
                     ? null
-                    : [new ReturnedValue($value, fromStub: $depth > 0, exact: Doubles::isCreatedBy($context, $node))]
+                    : [new ReturnedValue($value, fromStub: $depth > 0, exact: $scope->isExact($node, $value))]
             );
         }
 
@@ -81,33 +77,41 @@ final class StubbedValue
         }
 
         if ($stub === 'returnself') {
-            return [new ReturnedValue($method->double, fromStub: true)];
+            return [new ReturnedValue($scope->method->double, fromStub: true, exact: $scope->isDoubleExact())];
         }
 
         if ($stub === 'exception') {
             return [];
         }
 
-        $arguments = StubSyntax::arguments($context, $context->source, $node);
-        if ($arguments === null) {
+        $found = $scope->arguments($node);
+        if ($found === null) {
+            return null;
+        }
+
+        [$scope, $node, $arguments] = $found;
+        // A `ConsecutiveCalls` stub uses up its values, also when it's shared by two methods.
+        if ($scope->shared && $stub === 'consecutivecalls') {
             return null;
         }
 
         $types = $arguments === [] ? [] : $context->analysis->getMultipleExpressionTypes($arguments);
+        $first = $arguments[0] ?? null;
+        $type = $types[0] ?? null;
 
-        return match ($stub) {
-            'returnstub' => self::given($context, $arguments, $types),
-            'returnargument' => ArgumentStubs::argument($method, ($types[0] ?? null)?->getLiteralInt()),
-            'returncallback' => $arguments === []
+        return match (true) {
+            $stub === 'returnstub' => $first === null || $type === null
                 ? null
-                : ArgumentStubs::callback($context, $arguments[0], $types[0] ?? null, $method),
-            'returnvaluemap' => ValueMapRows::values(
-                $types[0] ?? null,
-                $method,
+                : [new ReturnedValue($type, fromStub: true, exact: $scope->isExact($first, $type))],
+            $stub === 'returnargument' => ArgumentStubs::argument($scope->method, $type?->getLiteralInt()),
+            $stub === 'returncallback' => $first === null ? null : ArgumentStubs::callback($scope, $first, $type),
+            $stub === 'returnvaluemap' => ValueMapRows::values(
+                $type,
+                $scope->method,
                 filled: false,
                 strict: count($arguments) > 1 && self::isStrict($types[1] ?? null),
             ),
-            'consecutivecalls' => self::consecutive($context, $node, $arguments, $method, $depth),
+            $stub === 'consecutivecalls' => self::consecutive($scope, $node, $arguments, $depth),
             default => null,
         };
     }
@@ -156,25 +160,6 @@ final class StubbedValue
     }
 
     /**
-     * The value given to `ReturnStub`, which is returned as it is, also when it's a stub.
-     *
-     * @param list<Node> $arguments
-     * @param list<?Type> $types
-     *
-     * @return list<ReturnedValue>|null
-     */
-    private static function given(NodeAnalysisContext $context, array $arguments, array $types): ?array
-    {
-        $type = $types[0] ?? null;
-
-        return (
-            $type === null
-                ? null
-                : [new ReturnedValue($type, fromStub: true, exact: Doubles::isCreatedBy($context, $arguments[0]))]
-        );
-    }
-
-    /**
      * The values returned by a `ConsecutiveCalls` stub. A value that isn't
      * known is left out.
      *
@@ -185,31 +170,28 @@ final class StubbedValue
      *
      * @return list<ReturnedValue>
      */
-    private static function consecutive(
-        NodeAnalysisContext $context,
-        Node $node,
-        array $arguments,
-        ConfiguredMethod $method,
-        int $depth,
-    ): array {
+    private static function consecutive(StubScope $scope, Node $node, array $arguments, int $depth): array
+    {
         $first = $arguments[0] ?? null;
-        $isNew = StubSyntax::isInstantiation($context->source, $node);
-        $elements = match (true) {
-            !$isNew => $arguments,
-            $first === null => [],
-            default => StubSyntax::elements($context->source, $first),
+        $isNew = StubSyntax::isInstantiation($scope->source, $node);
+        $found = match (true) {
+            !$isNew => [$scope, $arguments],
+            $first === null => [$scope, []],
+            default => $scope->elements($first),
         };
-        if ($elements === null) {
-            return $first === null ? [] : self::listed($context, $context->analysis->getExpressionType($first));
+        if ($found === null) {
+            return (
+                $first === null
+                    ? []
+                    : self::listed($scope->context, $scope->context->analysis->getExpressionType($first))
+            );
         }
 
-        $elementTypes = $elements === [] ? [] : $context->analysis->getMultipleExpressionTypes($elements);
+        [$scope, $elements] = $found;
+        $types = $elements === [] ? [] : $scope->context->analysis->getMultipleExpressionTypes($elements);
         $values = [];
         foreach ($elements as $position => $element) {
-            $values = [
-                ...$values,
-                ...(self::of($context, $element, $elementTypes[$position] ?? null, $method, $depth + 1) ?? []),
-            ];
+            $values = [...$values, ...(self::of($scope, $element, $types[$position] ?? null, $depth + 1) ?? [])];
         }
 
         return $values;

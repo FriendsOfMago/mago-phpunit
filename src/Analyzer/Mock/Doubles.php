@@ -8,6 +8,7 @@ use Mago\Sdk\Analyzer\NodeAnalysisContext;
 use Mago\Sdk\Analyzer\Type;
 use Mago\Sdk\Syntax\CallExpression;
 use Mago\Sdk\Syntax\Node;
+use Mago\Sdk\Syntax\SourceFile;
 use MagoPHPUnit\Internal\Type\Types;
 
 use function array_values;
@@ -57,10 +58,11 @@ final class Doubles
      *
      * The call must be on `$this`, `self`, `static` or `parent`, with a
      * literal class name.
+     *
+     * @param SourceFile $source The syntax that has the expression.
      */
-    public static function isCreatedBy(NodeAnalysisContext $context, Node $expression): bool
+    public static function isCreatedBy(NodeAnalysisContext $context, SourceFile $source, Node $expression): bool
     {
-        $source = $context->source;
         $call = CallExpression::fromExpression($source, $expression);
         $class = $call?->arguments[0] ?? null;
         $receiver = $call?->receiver === null ? '' : strtolower($source->getText($call->receiver));

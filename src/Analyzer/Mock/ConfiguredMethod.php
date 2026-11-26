@@ -13,6 +13,7 @@ use Mago\Sdk\Analyzer\Type;
 use Mago\Sdk\Analyzer\Type\NamedObjectType;
 use Mago\Sdk\Analyzer\Type\Visibility;
 use Mago\Sdk\Syntax\CallExpression;
+use Mago\Sdk\Syntax\Node;
 use MagoPHPUnit\Internal\Type\Bottom;
 use MagoPHPUnit\Internal\Type\Types;
 
@@ -58,12 +59,14 @@ final class ConfiguredMethod
      * @param Type $double The type of the double.
      * @param Type $returnType The native return type of the method, with
      *   `parent` resolved.
+     * @param Node $doubleNode The expression of the double, such as `$stub`.
      */
     private function __construct(
         public readonly FunctionLikeMetadata $metadata,
         public readonly string $name,
         public readonly Type $double,
         public readonly Type $returnType,
+        public readonly Node $doubleNode,
     ) {}
 
     /**
@@ -161,7 +164,7 @@ final class ConfiguredMethod
 
         return $method === null || $returnType === null
             ? null
-            : new self($method, "{$class}::{$method->originalName}()", $doubleType, $returnType);
+            : new self($method, "{$class}::{$method->originalName}()", $doubleType, $returnType, $double);
     }
 
     /**

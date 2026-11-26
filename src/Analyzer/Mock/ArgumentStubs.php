@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace MagoPHPUnit\Analyzer\Mock;
 
 use Mago\Sdk\Analyzer\Metadata\MetadataFlags;
-use Mago\Sdk\Analyzer\NodeAnalysisContext;
 use Mago\Sdk\Analyzer\Type;
 use Mago\Sdk\Analyzer\Type\SimpleAtomicType;
 use Mago\Sdk\Analyzer\Type\SimpleAtomicTypeKind;
@@ -85,13 +84,11 @@ final class ArgumentStubs
      *
      * @return list<ReturnedValue>|null
      */
-    public static function callback(
-        NodeAnalysisContext $context,
-        Node $node,
-        ?Type $callback,
-        ConfiguredMethod $method,
-    ): ?array {
-        $returned = CallbackReturn::of($context, $node, $callback);
+    public static function callback(StubScope $scope, Node $node, ?Type $callback): ?array
+    {
+        [$scope, $node] = CallbackReturn::isClosure($callback) ? $scope->expression($node) : [$scope, $node];
+        $returned = CallbackReturn::of($scope->context, $scope->source, $node, $callback);
+        $method = $scope->method;
         if ($returned === null) {
             return null;
         }

@@ -15,6 +15,7 @@ use Mago\Sdk\Analyzer\Type\ScalarType;
 use Mago\Sdk\Analyzer\Type\ScalarTypeKind;
 use Mago\Sdk\Syntax\Node;
 use Mago\Sdk\Syntax\NodeKind;
+use Mago\Sdk\Syntax\SourceFile;
 use MagoPHPUnit\Internal\Type\Types;
 
 use function count;
@@ -40,7 +41,8 @@ final class CallbackReturn
      * The type returned by the callback and whether it's inferred, or null
      * when it isn't known.
      *
-     * A closure written out in the call has the return type inferred by
+     * A closure written out, in the call or in the expression assigned to a
+     * variable that's followed, has the return type inferred by
      * Mago from its body, also when it declares one. It isn't known when the
      * closure takes a variable by reference, since the variable can change
      * after the closure is created. A first-class
@@ -51,16 +53,16 @@ final class CallbackReturn
      * takes callables that return anything, so it isn't known. A return type
      * with `static`, `self` or `parent` isn't known either.
      *
-     * @param Node $node The callback, in the syntax of the call.
+     * @param Node $node The callback, in the syntax of `$source`.
      *
      * @return array{Type, bool}|null
      */
-    public static function of(NodeAnalysisContext $context, Node $node, ?Type $callback): ?array
+    public static function of(NodeAnalysisContext $context, SourceFile $source, Node $node, ?Type $callback): ?array
     {
         $atomics = $callback->atomicTypes ?? [];
         $atomic = count($atomics) === 1 ? $atomics[0] : null;
         if ($atomic instanceof CallableType) {
-            return self::callable($context, $node, $atomic);
+            return self::callable($context, $source, $node, $atomic);
         }
 
         $returnType = match (true) {
@@ -77,26 +79,41 @@ final class CallbackReturn
     }
 
     /**
+     * Whether the callback is a closure, which is read from its syntax.
+     */
+    public static function isClosure(?Type $callback): bool
+    {
+        $atomics = $callback->atomicTypes ?? [];
+        $atomic = count($atomics) === 1 ? $atomics[0] : null;
+
+        return $atomic instanceof CallableType && $atomic->signature?->source?->kind === FunctionLikeKind::Closure;
+    }
+
+    /**
      * The return type of a closure or a first-class callable, and whether it's inferred.
      *
      * @return array{Type, bool}|null
      */
-    private static function callable(NodeAnalysisContext $context, Node $node, CallableType $callable): ?array
-    {
+    private static function callable(
+        NodeAnalysisContext $context,
+        SourceFile $source,
+        Node $node,
+        CallableType $callable,
+    ): ?array {
         $signature = $callable->signature;
-        $source = $signature?->source;
-        if ($signature === null || $source === null) {
+        $origin = $signature?->source;
+        if ($signature === null || $origin === null) {
             return null;
         }
 
-        if ($source->kind !== FunctionLikeKind::Closure) {
-            $returnType = self::nativeReturn($context->codebase->getFunctionLike($source));
+        if ($origin->kind !== FunctionLikeKind::Closure) {
+            $returnType = self::nativeReturn($context->codebase->getFunctionLike($origin));
 
             return $returnType === null || self::isRelative($returnType) ? null : [$returnType, false];
         }
 
         $returnType = $signature->returnType;
-        if ($returnType === null || self::isRelative($returnType) || !self::isPlainClosure($context, $node)) {
+        if ($returnType === null || self::isRelative($returnType) || !self::isPlainClosure($source, $node)) {
             return null;
         }
 
@@ -106,12 +123,10 @@ final class CallbackReturn
     /**
      * Whether the node is a closure or an arrow function written out, which
      * doesn't take a variable by reference. Such a variable can change after
-     * the closure is created. A closure around the call isn't looked at,
-     * since only the call's syntax is read.
+     * the closure is created. A closure around the call isn't looked at.
      */
-    private static function isPlainClosure(NodeAnalysisContext $context, Node $node): bool
+    private static function isPlainClosure(SourceFile $source, Node $node): bool
     {
-        $source = $context->source;
         while ($node->kind === NodeKind::Expression) {
             $inner = $source->getChildren($node)[0] ?? null;
             if ($inner === null) {
