@@ -100,6 +100,12 @@ These assertions narrow their value in a way that depends on another argument:
 | `assertNotContains($needle, $array)` | the needle isn't any literal value always held by the array, such as the values of `['a', 'b']` |
 | `assertContainsOnly('string', $values)` (PHPUnit 10 to 12) | holds only values of the named type. On PHPUnit 10 the name can also be a class; later versions have `assertContainsOnlyInstancesOf()` for that. |
 | `assertEmpty($value)` | is empty, unless it may be a `Countable` object, a `GMP` or a `BcMath\Number` |
+| `assertStringContainsString('x', $text)`, `assertStringContainsStringIgnoringCase()`, `assertStringStartsWith()` and `assertStringEndsWith()` | is a non-empty string, when the needle is a non-empty string and the value is typed as a string, `mixed`, `null` or `false` |
+| `assertJson($text)` | is a non-empty string, when the value is typed as a string, `mixed`, `null` or `false` |
+
+A value of another type, such as `int|string`, isn't narrowed, since PHP converts it to a string in
+a file without strict types. A `mixed` value is narrowed, which assumes the file has strict types:
+the extension can't see whether it does.
 
 On PHPUnit 10, `assertContainsOnlyInstancesOf(Foo::class, $values)` and `assertIsList($value)`
 narrow too. Later versions have their own `@phpstan-assert` tags for them, and Mago reads those.

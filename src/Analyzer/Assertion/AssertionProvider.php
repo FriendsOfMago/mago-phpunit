@@ -78,6 +78,11 @@ final class AssertionProvider implements MethodAssertionProvider
         'assertnotcontains',
         'assertcontainsonlyinstancesof',
         'assertislist',
+        'assertstringcontainsstring',
+        'assertstringcontainsstringignoringcase',
+        'assertstringstartswith',
+        'assertstringendswith',
+        'assertjson',
     ];
 
     /**
@@ -174,6 +179,22 @@ final class AssertionProvider implements MethodAssertionProvider
                 UntaggedAssertions::onlyInstancesOf($context->codebase, $invocation),
             ],
             'assertislist' => ['$array', UntaggedAssertions::isList($context->codebase)],
+            'assertstringcontainsstring', 'assertstringcontainsstringignoringcase' => [
+                '$haystack',
+                StringAssertions::nonEmptyHaystack($invocation, ['needle', 'haystack']),
+            ],
+            'assertstringstartswith' => [
+                '$string',
+                StringAssertions::nonEmptyHaystack($invocation, ['prefix', 'string']),
+            ],
+            'assertstringendswith' => [
+                '$string',
+                StringAssertions::nonEmptyHaystack($invocation, ['suffix', 'string']),
+            ],
+            'assertjson' => [
+                '$actual',
+                StringAssertions::nonEmpty($invocation->getArgument(0, 'actual')),
+            ],
             default => ['', null],
         };
 
