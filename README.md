@@ -194,6 +194,7 @@ Each check reports an analyzer issue with a `phpunit/` code.
 | `phpunit/redundant-assertion` | warning | an assertion that always passes for the value's type, such as `assertNotNull()` on a `Foo` |
 | `phpunit/mock-undefined-method` | error | `method('name')` for a method that can't be replaced in the double: missing, final, private, protected, a constructor or a destructor |
 | `phpunit/mock-call-on-plain-type` | error | `expects()` or `method()` on a value typed without `MockObject`, when its class doesn't declare that method |
+| `phpunit/mock-invalid-return` | error, or warning for a value that fits in part | a `willReturn()` or `willReturnOnConsecutiveCalls()` value that doesn't fit the method's return type, listed under [Mock return values](#mock-return-values) |
 | `phpunit/prophecy-union` | warning | a type documented as `Foo\|ObjectProphecy`, which should be `ObjectProphecy<Foo>` |
 | `phpunit/prophecy-invalid-return` | error, or warning in some cases | a value that the prophesized method can't return, listed under [Prophecy calls](#prophecy-calls) |
 | `phpunit/prophecy-invalid-double` | error | a class that Prophecy can't double, such as a final class |
@@ -231,6 +232,43 @@ $mailer->method('sendLater');
 
 By default, `mago analyze` only fails on errors. Pass `--minimum-fail-level=warning` to fail on the
 warnings too.
+
+### Mock return values
+
+```php
+interface Clock
+{
+    public function now(): int;
+}
+
+$clock = $this->createStub(Clock::class);
+$clock->method('now')->willReturn('12:00');
+// phpunit/mock-invalid-return: `willReturn()` gets `'12:00'`, but `App\Clock::now()` returns `int`, so PHPUnit throws.
+```
+
+PHPUnit compares each value given to `willReturn()` with the native return type of the method, and
+throws an `IncompatibleReturnValueException` for a value that doesn't fit. Scalars aren't
+converted, so `1` doesn't fit a `float` and `'5'` doesn't fit an `int`. A `void` or `never`
+method doesn't take any value, not even `null`. The extension reports the same values as errors.
+A value that fits only in part, such as an `?int` for an `int`, is a warning.
+
+A method without a native return type takes any value, and so does a `mixed` or `callable` one.
+An object is reported when its class can't be the returned one. That's the case for a double of
+another class created right there, such as `$this->createStub(Foo::class)`, for an enum case, and
+for an instance of an unrelated class when both are classes. An object typed as an interface
+isn't reported, since its class may implement the returned one too. A double typed `MockObject`
+alone, or with a wider type than its class, isn't reported either.
+
+PHPUnit doesn't check the values given to `willReturnOnConsecutiveCalls()`. It also takes any
+`willReturn()` value for a union of two or more types and `null`, such as `int|string|null`, for
+an intersection with `null`, and for `null` alone. The double returns these values, and its code uses strict types, so PHP throws
+a `TypeError` for a value that doesn't fit. These values are reported with the same rules, except
+that an `int` fits a `float` and a value for an intersection type isn't checked. A stub given
+to `willReturnOnConsecutiveCalls()` is called first:
+`new ReturnStub($value)` returns `$value`, `new ReturnSelf()` returns the double, and
+`new ReturnArgument($index)` returns the argument, of the parameter's native type. The results of
+other stubs aren't checked. A `void` method drops the values. A `never` method is reported when the
+list has a value or one of these three stubs, since the double then ends without throwing.
 
 ### Prophecy calls
 

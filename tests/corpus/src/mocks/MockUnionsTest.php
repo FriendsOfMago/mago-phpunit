@@ -74,8 +74,8 @@ final class MockUnionsTest extends TestCase
      */
     public function testConfigured(): void
     {
-        $this->thing->expects($this->once())->method('onlyOnThing')->willReturn(null);
-        $this->thing->method('onlyOnThing')->willReturn(null);
+        $this->thing->expects($this->once())->method('onlyOnThing');
+        $this->thing->method('onlyOnThing');
     }
 
     /**
@@ -93,9 +93,15 @@ final class MockUnionsTest extends TestCase
     public function testPlainType(): void
     {
         // @mago-expect analysis:phpunit/mock-call-on-plain-type
-        $this->plain->expects($this->once())->method('onlyOnThing')->willReturn(null);
+        $this->plain
+            ->expects($this->once())
+            ->method('onlyOnThing')
+            ->willReturnCallback(static function (): void {});
         // @mago-expect analysis:phpunit/mock-call-on-plain-type
-        $this->plainHelper()->method('onlyOnThing')->willReturn(null);
+        $this
+            ->plainHelper()
+            ->method('onlyOnThing')
+            ->willReturnCallback(static function (): void {});
         // @mago-expect analysis:non-existent-method
         $this->plain->method('notOnThing');
     }
@@ -117,7 +123,7 @@ final class MockUnionsTest extends TestCase
     public function testIntersection(): void
     {
         $mock = $this->createMock(Thing::class);
-        $mock->expects($this->once())->method('onlyOnThing')->willReturn(null);
+        $mock->expects($this->once())->method('onlyOnThing');
     }
 
     /**

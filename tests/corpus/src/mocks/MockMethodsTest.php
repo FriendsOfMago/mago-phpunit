@@ -16,7 +16,7 @@ final class MockMethodsTest extends TestCase
     public function testMock(): void
     {
         $mock = $this->createMock(Thing::class);
-        $mock->method('onlyOnThing')->willReturn(null);
+        $mock->method('onlyOnThing');
         // @mago-expect analysis:phpunit/mock-undefined-method
         $mock->method('notOnThing');
         // @mago-expect analysis:phpunit/mock-undefined-method

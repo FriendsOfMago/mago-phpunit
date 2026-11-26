@@ -23,12 +23,10 @@ use MagoPHPUnit\Internal\Text\CodeMask;
 use MagoPHPUnit\Internal\Type\Types;
 use WeakMap;
 
-use function array_values;
 use function count;
 use function implode;
 use function in_array;
 use function preg_match;
-use function str_starts_with;
 use function strtolower;
 
 /**
@@ -41,10 +39,6 @@ use function strtolower;
 final class MockMethodHook implements MethodCallAnalysisHook
 {
     public const CODE = 'mock-undefined-method';
-
-    private const DOUBLES = ['phpunit\framework\mockobject\mockobject', 'phpunit\framework\mockobject\stub'];
-
-    private const PHPUNIT = 'phpunit\\';
 
     /**
      * The `expects()` calls of each file, keyed by span. Each entry is the type
@@ -207,21 +201,9 @@ final class MockMethodHook implements MethodCallAnalysisHook
             return null;
         }
 
-        $isDouble = false;
-        $classes = [];
-        foreach (Types::names($type) as $name) {
-            $lower = strtolower($name);
-            if (in_array($lower, self::DOUBLES, strict: true)) {
-                $isDouble = true;
-                continue;
-            }
+        $classes = Doubles::classes($type);
 
-            if (!str_starts_with($lower, self::PHPUNIT)) {
-                $classes[$lower] = $name;
-            }
-        }
-
-        return $isDouble && $classes !== [] ? array_values($classes) : null;
+        return $classes === [] ? null : $classes;
     }
 
     /**

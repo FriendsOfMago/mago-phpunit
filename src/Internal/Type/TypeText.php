@@ -77,6 +77,7 @@ final class TypeText
                 . self::of($atomic->valueType)
                 . '>',
             $atomic instanceof NamedObjectType => self::object($atomic),
+            Closures::isClosure($atomic) => 'Closure',
             $atomic instanceof ScalarType && $atomic->kind === ScalarTypeKind::Boolean && is_bool($atomic->refinement)
                 => $atomic->refinement ? 'true' : 'false',
             $atomic instanceof ScalarType && $atomic->refinement instanceof IntegerType

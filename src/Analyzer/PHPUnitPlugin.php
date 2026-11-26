@@ -14,6 +14,7 @@ use MagoPHPUnit\Analyzer\Assertion\RedundantAssertionFunctionHook;
 use MagoPHPUnit\Analyzer\Assertion\RedundantAssertionHook;
 use MagoPHPUnit\Analyzer\Mock\IntersectionMockProvider;
 use MagoPHPUnit\Analyzer\Mock\MockMethodHook;
+use MagoPHPUnit\Analyzer\Mock\MockReturnHook;
 use MagoPHPUnit\Analyzer\Mock\MockUnionArgumentFilter;
 use MagoPHPUnit\Analyzer\Mock\MockUnionProvider;
 use MagoPHPUnit\Analyzer\Mock\PlainMockCallHook;
@@ -48,7 +49,7 @@ final class PHPUnitPlugin implements Plugin
         return new PluginDefinition(
             identifier: 'phpunit',
             name: 'PHPUnit',
-            description: 'Narrows the assertions left untagged by PHPUnit, types intersection mocks, mock unions and Prophecy calls, checks the arguments and return values of Prophecy calls and the classes and methods Prophecy cannot double, and reports invalid data providers, mocked methods that do not exist, missing parent setUp() calls, invalid covers and assertions that always pass.',
+            description: 'Narrows the assertions left untagged by PHPUnit, types intersection mocks, mock unions and Prophecy calls, checks the arguments and return values of Prophecy calls and the classes and methods Prophecy cannot double, and reports invalid data providers, mocked methods that do not exist, mock return values that do not fit the return type of the method, missing parent setUp() calls, invalid covers and assertions that always pass.',
         );
     }
 
@@ -71,6 +72,7 @@ final class PHPUnitPlugin implements Plugin
         $registry->registerIssueFilterHook(new MockUnionArgumentFilter());
         $registry->registerIssueFilterHook(new UncheckedExceptionFilter());
         $registry->registerMethodCallAnalysisHook(new MockMethodHook());
+        $registry->registerMethodCallAnalysisHook(new MockReturnHook());
         $registry->registerMethodCallAnalysisHook(new AssertCountHook());
         $registry->registerMethodCallAnalysisHook(new PlainMockCallHook('expects'));
         $registry->registerMethodCallAnalysisHook(new PlainMockCallHook('method'));
