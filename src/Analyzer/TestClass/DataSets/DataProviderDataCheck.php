@@ -188,7 +188,8 @@ final class DataProviderDataCheck
         // string-keyed values by parameter name. Dependency results are passed after the data. A
         // value rejected by a native parameter type causes an error. A missing value causes an
         // error too. A value given twice also causes an error. A key that isn't a parameter name
-        // causes an error. This matches phpstan-phpunit's `DataProviderDataRule`.
+        // causes an error. A value rejected only by a docblock type is a warning, since PHP doesn't
+        // check it.
         foreach ($uses as [$method, $keys, $counts]) {
             // PHPUnit stops the test at an empty key, so its sets aren't checked.
             if (array_intersect($keys, $emptyKeys) !== [] || self::reportDuplicateKey($test, $keys, $stringKeys)) {

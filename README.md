@@ -210,7 +210,7 @@ Each check reports an analyzer issue with a `phpunit/` code.
 | `phpunit/prophecy-token-mismatch` | error, or warning for a docblock type | an argument token that can never match its parameter, listed under [Prophecy calls](#prophecy-calls) |
 | `phpunit/assert-same-count` | warning | `assertSame($n, count($value))` or `assertSame($n, $value->count())`, where `assertCount()` is clearer |
 | `phpunit/invalid-data-provider` | error, or warning in two cases | a data provider or data set that PHPUnit can't use, listed under [Data providers](#data-providers) |
-| `phpunit/data-provider-mismatch` | error, or warning in one case | a data set that doesn't fit the test's parameters, listed under [Data providers](#data-providers) |
+| `phpunit/data-provider-mismatch` | error, or warning in two cases | a data set that doesn't fit the test's parameters, listed under [Data providers](#data-providers) |
 | `phpunit/dependency-mismatch` | error | a result of a test's dependency that doesn't fit its parameter, listed under [Data providers](#data-providers) |
 | `phpunit/missing-parent-call` | warning | a `setUp()` or `tearDown()` that doesn't call the parent's, when a parent class other than `TestCase` has one |
 | `phpunit/invalid-covers` | warning | a covers or uses tag or attribute that can't be used by PHPUnit, listed under [Coverage](#coverage) |
@@ -426,6 +426,12 @@ parameters, following PHPUnit's rules for passing them. A data set that doesn't 
   PHPUnit 11 stops at the first such dependency, and PHPUnit 12 skips each one.
 - A data set built at runtime, such as one from a loop, is checked as far as its type is known. A
   value that may fit, such as a `mixed` one, isn't reported.
+- A value that only breaks the parameter's docblock type, such as `26` for `@param string $min`, is
+  a warning. PHP doesn't check docblock types, so the test still runs. As in Mago, `null` fits a
+  docblock type when the native type is nullable or the default is `null`. A docblock type isn't
+  checked when it depends on a template, a type alias, a class constant, a conditional type or a
+  type such as `key-of<>`. A value that holds a generic object, such as `new Box(1)`, or a closure
+  isn't checked against a docblock type with a generic object or a callable signature either.
 - On PHPUnit 12.5 and later, a data set with more values than the test has parameters is a
   warning, unless the provider is declared with `#[DataProvider('cases', false)]`. PHPUnit doesn't
   allow named arguments for its attributes.

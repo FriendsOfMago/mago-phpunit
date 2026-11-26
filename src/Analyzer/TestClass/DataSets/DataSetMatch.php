@@ -20,7 +20,10 @@ use Mago\Sdk\Analyzer\Type\SimpleAtomicTypeKind;
 use Mago\Sdk\Analyzer\TypeComparator;
 use Mago\Sdk\Analyzer\TypeComparison;
 use Mago\Sdk\Span;
+use MagoPHPUnit\Internal\Type\GenericParts;
+use MagoPHPUnit\Internal\Type\SettledType;
 use MagoPHPUnit\Internal\Type\Types;
+use MagoPHPUnit\Internal\Type\TypeText;
 
 use function array_slice;
 use function array_values;
@@ -44,11 +47,13 @@ final class DataSetMatch
      * The problems of the data sets that don't fit the test's parameters.
      *
      * Each set has its label, its type and the span to report on. Each
-     * problem has the set's label, the rest of the message and the span.
+     * problem has the set's label, the rest of the message, the span, and
+     * whether only a docblock type rejects the value. PHP doesn't check
+     * docblock types, so the test still runs with such a value.
      *
      * @param list<DataSet> $sets
      * @param ?int $dependencies How many results of other tests come after the data, or null when it isn't known.
-     * @return list<array{string, string, Span}>
+     * @return list<array{string, string, Span, bool}>
      */
     public static function problems(
         TypeComparator $types,
@@ -60,7 +65,8 @@ final class DataSetMatch
         // PHPUnit passes each data set as the test's arguments in order. PHPUnit 11 and later pass
         // string-keyed values by parameter name. Dependency results are passed after the data. A value
         // rejected by a native parameter type causes an error. A missing value causes an error too. A
-        // value given twice causes an error. A key that isn't a parameter name causes an error.
+        // value given twice causes an error. A key that isn't a parameter name causes an error. A
+        // value rejected only by a docblock type doesn't cause an error, but it's still reported.
         $parameters = $method->parameters ?? [];
         $problems = [];
         $comparisons = [];
@@ -79,6 +85,7 @@ final class DataSetMatch
                         $set->label,
                         "has string keys, and the results of the test's dependencies come after it without keys.",
                         $set->where,
+                        false,
                     ];
                 }
 
@@ -87,32 +94,67 @@ final class DataSetMatch
 
             foreach (self::match($parameters, $values, $dependencies ?? count($parameters)) as $found) {
                 if ($found[0] === 'problem') {
-                    $problems[] = [$set->label, $found[1], $set->where];
+                    $problems[] = [$set->label, $found[1], $set->where, false];
                     continue;
                 }
 
                 // A value that may fit, such as a `mixed` one or a union with
                 // a type that fits, isn't reported.
-                [, $parameter, $value, $expected] = $found;
-                $comparisons[] = TypeComparison::containedBy($value, $expected);
-                $comparisons[] = TypeComparison::canBeIdentical($value, $expected);
+                [, $parameter, $value, $native, $docblock] = $found;
+                // Mago compares a generic object or a closure with a generic
+                // or callable type more strictly than PHP runs it.
+                $generic = $docblock !== null && GenericParts::in($value) && GenericParts::in($docblock);
+                $docblock = $generic ? null : $docblock;
+                $expected = [];
+                foreach (['native' => $native, 'docblock' => $docblock] as $source => $type) {
+                    if ($type === null) {
+                        continue;
+                    }
+
+                    $expected[$source] = [$type, count($comparisons)];
+                    $comparisons[] = TypeComparison::containedBy($value, $type);
+                    $comparisons[] = TypeComparison::canBeIdentical($value, $type);
+                }
+
                 $pending[] = [$set->label, $parameter, $value, $expected, $set->where];
             }
         }
 
-        // Each pending value has two results in a row: contained by, then can
-        // be identical.
-        $results = $comparisons === [] ? [] : $types->compareMultiple($comparisons);
-        foreach ($pending as $index => [$label, $parameter, $value, $expected, $where]) {
-            if (($results[2 * $index] ?? true) || ($results[(2 * $index) + 1] ?? true)) {
-                continue;
-            }
+        return [...$problems, ...self::typeProblems($types, $comparisons, $pending)];
+    }
 
-            $problems[] = [
-                $label,
-                "has a value of type {$value} for {$parameter->name}, but the parameter takes {$expected}.",
-                $where,
-            ];
+    /**
+     * The problems of the values that don't fit the types they're compared with.
+     *
+     * @param list<TypeComparison> $comparisons
+     * @param list<array{string, ParameterMetadata, Type, array<'native'|'docblock', array{Type, int}>, Span}> $pending
+     *   Each value with its set's label, its parameter, the types it's compared with and where their results start.
+     * @return list<array{string, string, Span, bool}>
+     */
+    private static function typeProblems(TypeComparator $types, array $comparisons, array $pending): array
+    {
+        // Each type has two results in a row: contained by, then can be
+        // identical. A value rejected by the native type isn't reported again
+        // for the docblock type.
+        $problems = [];
+        $results = $comparisons === [] ? [] : $types->compareMultiple($comparisons);
+        foreach ($pending as [$label, $parameter, $value, $expected, $where]) {
+            foreach ($expected as $source => [$type, $at]) {
+                if (($results[$at] ?? true) || ($results[$at + 1] ?? true)) {
+                    continue;
+                }
+
+                $docblock = $source === 'docblock';
+                $takes = $docblock ? 'its docblock type is' : 'the parameter takes';
+                $shown = TypeText::of($value);
+                $problems[] = [
+                    $label,
+                    "has a value of type {$shown} for {$parameter->name}, but {$takes} " . TypeText::of($type) . '.',
+                    $where,
+                    $docblock,
+                ];
+                break;
+            }
         }
 
         return $problems;
@@ -214,7 +256,7 @@ final class DataSetMatch
      *
      * @param list<ParameterMetadata> $parameters
      * @param array{list<Type>, array<string, Type>} $values
-     * @return list<array{'compare', ParameterMetadata, Type, Type}|array{'problem', string}> Values with their required native types, or problems.
+     * @return list<array{'compare', ParameterMetadata, Type, ?Type, ?Type}|array{'problem', string}> Values with the parameter's native and docblock types, or problems.
      */
     private static function match(array $parameters, array $values, int $dependencies): array
     {
@@ -248,9 +290,9 @@ final class DataSetMatch
                 continue;
             }
 
-            $type = $parameter->declaredType?->type;
-            if ($type !== null) {
-                $found[] = ['compare', $parameter, $value, $type];
+            $types = self::types($parameter);
+            if ($types !== null) {
+                $found[] = ['compare', $parameter, $value, ...$types];
             }
         }
 
@@ -263,16 +305,37 @@ final class DataSetMatch
         }
 
         // A variadic parameter takes the leftover positional and named values.
-        $type = $variadic->declaredType?->type;
-        if ($type === null) {
+        $types = self::types($variadic);
+        if ($types === null) {
             return $found;
         }
 
         foreach ([...array_slice($positional, offset: $fixed), ...$named] as $value) {
-            $found[] = ['compare', $variadic, $value, $type];
+            $found[] = ['compare', $variadic, $value, ...$types];
         }
 
         return $found;
+    }
+
+    /**
+     * The native type and the docblock type of the parameter, or null when
+     * it doesn't have either.
+     *
+     * The docblock type is left out when it depends on a template, a type
+     * alias, a class constant or a conditional type, since its real type
+     * isn't known here.
+     *
+     * @return array{?Type, ?Type}|null
+     */
+    private static function types(ParameterMetadata $parameter): ?array
+    {
+        $native = $parameter->declaredType?->type;
+        $declared = $parameter->type;
+        $docblock = $declared !== null && $declared->fromDocblock && SettledType::is($declared->type)
+            ? $declared->type
+            : null;
+
+        return $native === null && $docblock === null ? null : [$native, $docblock];
     }
 
     /**

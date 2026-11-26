@@ -8,14 +8,19 @@ use Mago\Sdk\Analyzer\Type;
 use Mago\Sdk\Analyzer\Type\ArrayItem;
 use Mago\Sdk\Analyzer\Type\ArrayKeyKind;
 use Mago\Sdk\Analyzer\Type\AtomicType;
+use Mago\Sdk\Analyzer\Type\ClassLikeStringKind;
+use Mago\Sdk\Analyzer\Type\ClassLikeStringType;
 use Mago\Sdk\Analyzer\Type\IntegerType;
 use Mago\Sdk\Analyzer\Type\IterableType;
 use Mago\Sdk\Analyzer\Type\KeyedArrayType;
 use Mago\Sdk\Analyzer\Type\ListElement;
 use Mago\Sdk\Analyzer\Type\ListType;
 use Mago\Sdk\Analyzer\Type\NamedObjectType;
+use Mago\Sdk\Analyzer\Type\ObjectProperty;
+use Mago\Sdk\Analyzer\Type\ObjectShapeType;
 use Mago\Sdk\Analyzer\Type\ScalarType;
 use Mago\Sdk\Analyzer\Type\ScalarTypeKind;
+use Mago\Sdk\Analyzer\Type\StringCasing;
 use Mago\Sdk\Analyzer\Type\StringLiteralKind;
 use Mago\Sdk\Analyzer\Type\StringType;
 
@@ -36,6 +41,8 @@ use function strpbrk;
  * @internal
  *
  * @mago-expect lint:cyclomatic-complexity
+ * @mago-expect lint:kan-defect
+ * @mago-expect lint:too-many-methods
  */
 final class TypeText
 {
@@ -77,6 +84,7 @@ final class TypeText
                 . self::of($atomic->valueType)
                 . '>',
             $atomic instanceof NamedObjectType => self::object($atomic),
+            $atomic instanceof ObjectShapeType => self::shape($atomic),
             Closures::isClosure($atomic) => 'Closure',
             $atomic instanceof ScalarType && $atomic->kind === ScalarTypeKind::Boolean && is_bool($atomic->refinement)
                 => $atomic->refinement ? 'true' : 'false',
@@ -87,7 +95,70 @@ final class TypeText
                 && $atomic->refinement->literalKind === StringLiteralKind::Value
                 && $atomic->refinement->literalValue !== null
                 => self::literal($atomic->refinement->literalValue),
+            $atomic instanceof ScalarType
+                && $atomic->kind === ScalarTypeKind::String
+                && $atomic->refinement instanceof StringType
+                => self::string($atomic->refinement),
+            $atomic instanceof ScalarType && $atomic->refinement instanceof ClassLikeStringType
+                => self::classString($atomic->refinement),
             default => (string) $atomic,
+        };
+    }
+
+    /**
+     * A string type that isn't a literal, such as `non-empty-string` or
+     * `lowercase-string`.
+     */
+    private static function string(StringType $refinement): string
+    {
+        if ($refinement->callable || $refinement->numeric) {
+            return $refinement->callable ? 'callable-string' : 'numeric-string';
+        }
+
+        $empty = match (true) {
+            $refinement->truthy => 'non-falsy-',
+            $refinement->nonEmpty => 'non-empty-',
+            default => '',
+        };
+        $casing = match ($refinement->casing) {
+            StringCasing::Lowercase => 'lowercase-',
+            StringCasing::Uppercase => 'uppercase-',
+            StringCasing::Unspecified => '',
+        };
+        $literal = $refinement->literalKind === StringLiteralKind::Unspecified ? 'literal-' : '';
+
+        return "{$empty}{$literal}{$casing}string";
+    }
+
+    /**
+     * An object shape, such as `object{name: string, age?: int}`.
+     */
+    private static function shape(ObjectShapeType $atomic): string
+    {
+        $properties = array_map(
+            static fn(ObjectProperty $property): string => (
+                $property->name . ($property->optional ? '?' : '') . ': ' . self::of($property->type)
+            ),
+            $atomic->properties,
+        );
+        if (!$atomic->sealed) {
+            $properties[] = '...';
+        }
+
+        return 'object{' . implode(', ', $properties) . '}';
+    }
+
+    /**
+     * A class string, such as `class-string<Foo>` or `Foo::class`.
+     */
+    private static function classString(ClassLikeStringType $refinement): string
+    {
+        $kind = $refinement->kind ?? ClassLikeStringKind::Class_;
+
+        return match (true) {
+            $refinement->literal !== null => "{$refinement->literal}::class",
+            $refinement->constraint !== null => "{$kind->value}<" . self::atomic($refinement->constraint) . '>',
+            default => $kind->value,
         };
     }
 

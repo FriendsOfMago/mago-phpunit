@@ -67,12 +67,23 @@ final class DataSetCheck
             $label,
             $problem,
             $where,
+            $docblock,
         ]) {
+            if ($docblock) {
+                $test->reporter->warning(self::CODE, Reporter::issue(
+                    "Data set {$label} {$problem}",
+                    $where,
+                    "PHP doesn't check the docblock types of {$name}(), so the test runs. Fix the value or the "
+                    . 'docblock type.',
+                ));
+                continue;
+            }
+
             self::report($test, $method, "Data set {$label} {$problem}", $where);
             $reported[$label] = true;
         }
 
-        // A set with a value that doesn't fit already has an error, so the
+        // A set with an error already has a value that doesn't fit, so the
         // warning about its value count is left out.
         $parameters = count($method->parameters ?? []);
         foreach ($countsValues ? DataSetMatch::extraValues($method, $sets) : [] as [$label, $count, $where]) {

@@ -147,7 +147,8 @@ final class DataProviderDataTest extends TestCase
 
     public static function docblockTyped(): iterable
     {
-        // Only a mismatch with the native type fails the test when it runs.
+        // A value that only breaks the docblock type is a warning.
+        // @mago-expect analysis:phpunit/data-provider-mismatch
         yield [0];
     }
 
