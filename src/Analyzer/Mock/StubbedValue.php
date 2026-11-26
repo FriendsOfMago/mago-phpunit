@@ -4,29 +4,31 @@ declare(strict_types=1);
 
 namespace MagoPHPUnit\Analyzer\Mock;
 
-use Mago\Sdk\Analyzer\Metadata\MetadataFlags;
 use Mago\Sdk\Analyzer\NodeAnalysisContext;
 use Mago\Sdk\Analyzer\Type;
-use Mago\Sdk\Syntax\CallArgument;
+use Mago\Sdk\Analyzer\Type\ListType;
 use Mago\Sdk\Syntax\Node;
-use Mago\Sdk\Syntax\NodeKind;
 use MagoPHPUnit\Internal\Type\Types;
 
 use function array_filter;
+use function array_map;
 use function array_values;
 use function count;
 use function in_array;
 use function str_starts_with;
+use function strlen;
 use function strtolower;
+use function substr;
 
 /**
- * Finds the value returned by a double for a value given to
- * `willReturnOnConsecutiveCalls()`.
+ * Finds the values returned by a double for a value or a stub.
  *
- * PHPUnit calls a stub in the list, such as `new ReturnStub(5)`, and the
- * double returns its result. `ReturnStub` returns its value, `ReturnSelf`
- * returns the double and `ReturnArgument` returns an argument of the call.
- * The results of other stubs aren't known here.
+ * PHPUnit calls a stub, such as `new ReturnStub(5)`, and the double returns
+ * its result. `ReturnStub` returns its value, `ReturnSelf` the double,
+ * `ReturnArgument` an argument of the call, `ReturnCallback` the result of
+ * the callback, `ReturnValueMap` the value of a matching row, and
+ * `ConsecutiveCalls` its values in turn, calling the stubs among them. An
+ * `Exception` stub throws. The results of other stubs aren't known here.
  *
  * @internal
  *
@@ -39,21 +41,27 @@ final class StubbedValue
 
     private const STUB_INTERFACE = 'phpunit\\framework\\mockobject\\stub\\stub';
 
+    /**
+     * How deep stubs in a `ConsecutiveCalls` list are followed.
+     */
+    private const MAXIMUM_DEPTH = 4;
+
     private function __construct() {}
 
     /**
-     * The type of the returned value and whether a stub returns it, or null
-     * when the returned value isn't known.
+     * The values returned by the double for a value given to it, or null
+     * when they aren't known.
      *
-     * @param ?Type $value The type of the value given to `willReturnOnConsecutiveCalls()`.
+     * A value that isn't a stub is returned as it is. A stub is called.
      *
-     * @return array{Type, bool}|null
+     * @return list<ReturnedValue>|null
      */
     public static function of(
         NodeAnalysisContext $context,
-        CallArgument $argument,
+        Node $node,
         ?Type $value,
         ConfiguredMethod $method,
+        int $depth = 0,
     ): ?array {
         if ($value === null) {
             return null;
@@ -61,21 +69,55 @@ final class StubbedValue
 
         $stub = self::stub($value);
         if ($stub === null) {
-            return [$value, false];
+            return (
+                self::isCustomStub($context, $value)
+                    ? null
+                    : [new ReturnedValue($value, fromStub: $depth > 0, exact: Doubles::isCreatedBy($context, $node))]
+            );
         }
 
-        if (count($value->atomicTypes) !== 1) {
+        if (count($value->atomicTypes) !== 1 || $depth >= self::MAXIMUM_DEPTH) {
             return null;
         }
 
-        $returned = match ($stub) {
-            self::STUBS . 'returnself' => $method->double,
-            self::STUBS . 'returnstub' => self::constructorValue($context, $argument),
-            self::STUBS . 'returnargument' => self::argument($context, $argument, $method),
+        if ($stub === 'returnself') {
+            return [new ReturnedValue($method->double, fromStub: true)];
+        }
+
+        if ($stub === 'exception') {
+            return [];
+        }
+
+        $arguments = StubSyntax::arguments($context, $context->source, $node);
+        if ($arguments === null) {
+            return null;
+        }
+
+        $types = $arguments === [] ? [] : $context->analysis->getMultipleExpressionTypes($arguments);
+
+        return match ($stub) {
+            'returnstub' => self::given($context, $arguments, $types),
+            'returnargument' => ArgumentStubs::argument($method, ($types[0] ?? null)?->getLiteralInt()),
+            'returncallback' => $arguments === []
+                ? null
+                : ArgumentStubs::callback($context, $arguments[0], $types[0] ?? null, $method),
+            'returnvaluemap' => ValueMapRows::values(
+                $types[0] ?? null,
+                $method,
+                filled: false,
+                strict: count($arguments) > 1 && self::isStrict($types[1] ?? null),
+            ),
+            'consecutivecalls' => self::consecutive($context, $node, $arguments, $method, $depth),
             default => null,
         };
+    }
 
-        return $returned === null ? null : [$returned, true];
+    /**
+     * Whether the value is one of PHPUnit's stubs, such as `ReturnStub`.
+     */
+    public static function isStub(Type $value): bool
+    {
+        return self::stub($value) !== null;
     }
 
     /**
@@ -99,14 +141,14 @@ final class StubbedValue
     }
 
     /**
-     * The lowercase name of the PHPUnit stub class in the type, or null.
+     * The short lowercase name of the PHPUnit stub class in the type, such as `returnstub`, or null.
      */
     private static function stub(Type $type): ?string
     {
         foreach (Types::names($type) as $name) {
             $lower = strtolower($name);
             if (str_starts_with($lower, self::STUBS)) {
-                return $lower;
+                return substr($lower, strlen(self::STUBS));
             }
         }
 
@@ -114,69 +156,97 @@ final class StubbedValue
     }
 
     /**
-     * The type of the argument returned by `new ReturnArgument($index)`, or
-     * null when it isn't known.
+     * The value given to `ReturnStub`, which is returned as it is, also when it's a stub.
      *
-     * PHPUnit passes the call's arguments with the defaults filled in, so the
-     * index of a parameter gets a value of the parameter's native type. A
-     * negative index always gets null. A call can pass more arguments than
-     * the method declares, so a larger index isn't checked.
+     * @param list<Node> $arguments
+     * @param list<?Type> $types
+     *
+     * @return list<ReturnedValue>|null
      */
-    private static function argument(
+    private static function given(NodeAnalysisContext $context, array $arguments, array $types): ?array
+    {
+        $type = $types[0] ?? null;
+
+        return (
+            $type === null
+                ? null
+                : [new ReturnedValue($type, fromStub: true, exact: Doubles::isCreatedBy($context, $arguments[0]))]
+        );
+    }
+
+    /**
+     * The values returned by a `ConsecutiveCalls` stub. A value that isn't
+     * known is left out.
+     *
+     * `new ConsecutiveCalls([...])` takes a list, and
+     * `$this->onConsecutiveCalls(...)` takes the values as arguments.
+     *
+     * @param list<Node> $arguments
+     *
+     * @return list<ReturnedValue>
+     */
+    private static function consecutive(
         NodeAnalysisContext $context,
-        CallArgument $argument,
+        Node $node,
+        array $arguments,
         ConfiguredMethod $method,
-    ): ?Type {
-        $index = self::constructorValue($context, $argument)?->getLiteralInt();
-        if ($index === null) {
-            return null;
+        int $depth,
+    ): array {
+        $first = $arguments[0] ?? null;
+        $isNew = StubSyntax::isInstantiation($context->source, $node);
+        $elements = match (true) {
+            !$isNew => $arguments,
+            $first === null => [],
+            default => StubSyntax::elements($context->source, $first),
+        };
+        if ($elements === null) {
+            return $first === null ? [] : self::listed($context, $context->analysis->getExpressionType($first));
         }
 
-        if ($index < 0) {
-            return Type::null();
+        $elementTypes = $elements === [] ? [] : $context->analysis->getMultipleExpressionTypes($elements);
+        $values = [];
+        foreach ($elements as $position => $element) {
+            $values = [
+                ...$values,
+                ...(self::of($context, $element, $elementTypes[$position] ?? null, $method, $depth + 1) ?? []),
+            ];
         }
 
-        $parameter = $method->metadata->parameters[$index] ?? null;
-        if ($parameter === null || $parameter->flags->contains(MetadataFlags::VARIADIC)) {
-            return null;
-        }
-
-        return $parameter->declaredType?->type;
+        return $values;
     }
 
     /**
-     * The type of the first value given to the stub's constructor, such as
-     * `5` in `new ReturnStub(5)`, or null.
+     * The values of a list that isn't written out, from its type. A value
+     * that's a stub isn't known and is left out.
+     *
+     * @return list<ReturnedValue>
      */
-    private static function constructorValue(NodeAnalysisContext $context, CallArgument $argument): ?Type
+    private static function listed(NodeAnalysisContext $context, ?Type $list): array
     {
-        $expression = self::firstConstructorArgument($context, $argument->value);
-
-        return $expression === null ? null : $context->analysis->getExpressionType($expression);
-    }
-
-    /**
-     * The first positional argument of a `new` expression, or null.
-     */
-    private static function firstConstructorArgument(NodeAnalysisContext $context, Node $node): ?Node
-    {
-        $source = $context->source;
-        if ($node->kind !== NodeKind::Instantiation) {
-            return null;
+        $atomics = $list->atomicTypes ?? [];
+        $atomic = count($atomics) === 1 ? $atomics[0] : null;
+        if (!$atomic instanceof ListType) {
+            return [];
         }
 
-        foreach ($source->getChildren($node) as $child) {
-            if ($child->kind !== NodeKind::ArgumentList) {
+        $types = array_map(static fn($element): Type => $element->type, $atomic->knownElements ?? []);
+        $values = [];
+        foreach ($types as $type) {
+            if (self::stub($type) !== null || self::isCustomStub($context, $type)) {
                 continue;
             }
 
-            // The node layout is the one read by `CallExpression`.
-            $first = $source->getChildren($child)[0] ?? null;
-            $variant = $first === null ? null : $source->getChildren($first)[0] ?? null;
-
-            return $variant?->kind === NodeKind::PositionalArgument ? $source->getChildren($variant)[0] ?? null : null;
+            $values[] = new ReturnedValue($type, fromStub: true);
         }
 
-        return null;
+        return $values;
+    }
+
+    /**
+     * Whether the `$strict` argument of a value map may be true.
+     */
+    private static function isStrict(?Type $strict): bool
+    {
+        return $strict?->getLiteralBool() !== false;
     }
 }

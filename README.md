@@ -201,7 +201,7 @@ Each check reports an analyzer issue with a `phpunit/` code.
 | `phpunit/mock-undefined-method` | error | `method('name')` for a method that can't be replaced in the double: missing, final, private, protected, a constructor or a destructor. Also a method given to `createPartialMock()`, or to `onlyMethods()` in a chain that starts at `getMockBuilder()` with a literal class name, that isn't found by reflection |
 | `phpunit/mock-added-method-exists` | error | a method given to `addMethods()` (PHPUnit 10 and 11) that already exists in the mocked class |
 | `phpunit/mock-call-on-plain-type` | error | `expects()` or `method()` on a value typed without `MockObject`, when its class doesn't declare that method |
-| `phpunit/mock-invalid-return` | error, or warning for a value that fits in part | a `willReturn()` or `willReturnOnConsecutiveCalls()` value that doesn't fit the method's return type, listed under [Mock return values](#mock-return-values) |
+| `phpunit/mock-invalid-return` | error, or warning for a value that fits in part | a value returned by a double, set up with `will()` or a `willReturn*()` method, that doesn't fit the method's return type, listed under [Mock return values](#mock-return-values) |
 | `phpunit/prophecy-union` | warning | a type documented as `Foo\|ObjectProphecy`, which should be `ObjectProphecy<Foo>` |
 | `phpunit/prophecy-invalid-return` | error, or warning in some cases | a value that the prophesized method can't return, listed under [Prophecy calls](#prophecy-calls) |
 | `phpunit/prophecy-invalid-double` | error | a class that Prophecy can't double, such as a final class |
@@ -267,16 +267,34 @@ for an instance of an unrelated class when both are classes. An object typed as 
 isn't reported, since its class may implement the returned one too. A double typed `MockObject`
 alone, or with a wider type than its class, isn't reported either.
 
-PHPUnit doesn't check the values given to `willReturnOnConsecutiveCalls()`. It also takes any
-`willReturn()` value for a union of two or more types and `null`, such as `int|string|null`, for
-an intersection with `null`, and for `null` alone. The double returns these values, and its code uses strict types, so PHP throws
-a `TypeError` for a value that doesn't fit. These values are reported with the same rules, except
-that an `int` fits a `float` and a value for an intersection type isn't checked. A stub given
-to `willReturnOnConsecutiveCalls()` is called first:
-`new ReturnStub($value)` returns `$value`, `new ReturnSelf()` returns the double, and
-`new ReturnArgument($index)` returns the argument, of the parameter's native type. The results of
-other stubs aren't checked. A `void` method drops the values. A `never` method is reported when the
-list has a value or one of these three stubs, since the double then ends without throwing.
+PHPUnit doesn't check the values given to `willReturnOnConsecutiveCalls()`, or the values
+returned by a stub. It also takes any `willReturn()` value for a union of two or more types and
+`null`, such as `int|string|null`, for an intersection with `null`, and for `null` alone, and any
+stub for a method that returns any object. The double returns these values, and its code uses
+strict types, so PHP throws a `TypeError` for a value that doesn't fit. These values are reported
+with the same rules, except that an `int` fits a `float` and a value for an intersection type
+isn't checked.
+
+A stub is called first. It's given to `will()` or `willReturnOnConsecutiveCalls()`, or created by
+`willReturnCallback()`, `willReturnArgument()`, `willReturnSelf()`, `willReturnMap()` or a
+`TestCase` method such as `returnValue()`:
+
+- `ReturnStub` returns its value, and `ReturnSelf` returns the double.
+- `ReturnArgument` returns the argument, of the parameter's native type. A variadic parameter takes
+  the index and those after it. An index past the parameters gets `null`, unless the call passes
+  more arguments, so it's a warning.
+- `ReturnCallback` returns the callback's result: the return type of a closure or a first-class
+  callable, declared or inferred, or the native return type of the function or method it names.
+- `ReturnValueMap` returns the last value of a matching row. A row matches a call when it has one
+  value for each parameter plus the returned value, and `willReturnMap()` fills in a short row with
+  the parameters' defaults. A map without such a row returns `null`, unless it's strict, as created by `willReturnStrictMap()`
+  or with the `$strict` argument of PHPUnit 13.
+- `ConsecutiveCalls` returns its values in turn, and calls the stubs among them.
+
+An unpacked array that's written out, such as `...[1, 2]`, gives its values. The results of other
+stubs aren't checked. A `void` method drops the values. A `never` method is reported when the
+double gets a value, other than from a stub that throws, since the double then ends without
+throwing.
 
 ### Prophecy calls
 

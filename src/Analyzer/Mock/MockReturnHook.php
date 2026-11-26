@@ -7,36 +7,61 @@ namespace MagoPHPUnit\Analyzer\Mock;
 use Mago\Sdk\Analyzer\FileAnalysisRequirement;
 use Mago\Sdk\Analyzer\MethodCallAnalysisHook;
 use Mago\Sdk\Analyzer\NodeAnalysisContext;
-use Mago\Sdk\Reporting\Issue;
+use Mago\Sdk\Analyzer\Type;
 use Mago\Sdk\Reporting\Level;
 use Mago\Sdk\Span;
 use Mago\Sdk\Syntax\CallExpression;
+use Mago\Sdk\Syntax\Node;
 use MagoPHPUnit\Analyzer\Support\Reporter;
 use MagoPHPUnit\Internal\Type\TypeText;
 
+use function in_array;
+use function sprintf;
 use function strtolower;
 
 /**
- * Reports a `willReturn()` or `willReturnOnConsecutiveCalls()` value that
- * doesn't fit the native return type of the configured method.
+ * Reports a value returned by a double that doesn't fit the native return
+ * type of the configured method.
  *
  * @internal
  *
  * @mago-expect lint:cyclomatic-complexity
+ * @mago-expect lint:kan-defect
  */
 final class MockReturnHook implements MethodCallAnalysisHook
 {
     public const CODE = 'mock-invalid-return';
 
     /**
-     * Targets `willReturn()` and `willReturnOnConsecutiveCalls()` on PHPUnit's invocation builders.
+     * The builder methods, lowercased, with the name written in messages.
+     */
+    private const BUILDERS = [
+        'willreturn' => 'willReturn',
+        'willreturnonconsecutivecalls' => 'willReturnOnConsecutiveCalls',
+        'willreturncallback' => 'willReturnCallback',
+        'willreturnargument' => 'willReturnArgument',
+        'willreturnself' => 'willReturnSelf',
+        'willreturnmap' => 'willReturnMap',
+        'willreturnstrictmap' => 'willReturnStrictMap',
+        'will' => 'will',
+    ];
+
+    /**
+     * The builder methods that take the returned values, rather than create a stub.
+     */
+    private const GIVEN = ['willReturn()', 'willReturnOnConsecutiveCalls()'];
+
+    /**
+     * Targets `will()` and the `willReturn*()` methods of PHPUnit's invocation builders.
      */
     public function getTargets(): array
     {
-        return [
-            ...ConfiguredMethod::targets('willReturn'),
-            ...ConfiguredMethod::targets('willReturnOnConsecutiveCalls'),
-        ];
+        $targets = [];
+        foreach (self::BUILDERS as $name) {
+            $targets = [...$targets, ...ConfiguredMethod::targets($name)];
+        }
+
+        return $targets;
     }
 
     /**
@@ -58,125 +83,104 @@ final class MockReturnHook implements MethodCallAnalysisHook
     }
 
     /**
-     * Checks each value of `$double->method('name')->willReturn(...)` and of
-     * `willReturnOnConsecutiveCalls(...)`.
+     * Checks the values returned for `$double->method('name')->willReturn(...)`
+     * and the other `willReturn*()` methods.
      *
      * PHPUnit 10.5 and later compare every `willReturn()` value with the
      * method's native return type when `willReturn()` is called, and throw an
      * `IncompatibleReturnValueException` for a value that doesn't fit. A
      * `void` or `never` method doesn't take any value, not even null.
      *
-     * The values of `willReturnOnConsecutiveCalls()` aren't checked by
-     * PHPUnit. The double returns them, one per call, and its code uses
-     * strict types, so PHP throws a `TypeError` for a value that doesn't fit.
-     * PHPUnit also takes any `willReturn()` value for some union types with
-     * `null`. These values are checked the same way.
+     * The other values aren't checked by PHPUnit. The double returns them,
+     * and its code uses strict types, so PHP throws a `TypeError` for a value
+     * that doesn't fit. PHPUnit also takes any `willReturn()` value for some
+     * union types with `null`, and a stub given to `willReturn()` passes the
+     * check when the method returns any object. These values are checked
+     * when the double returns them.
      */
     public function analyze(NodeAnalysisContext $context): void
     {
         $call = CallExpression::fromNode($context->source, $context->node);
-        $method = ConfiguredMethod::of($context, $call);
-        if ($method === null) {
+        $builder = self::BUILDERS[strtolower($call->getName($context->source) ?? '')] ?? null;
+        $method = $builder === null ? null : ConfiguredMethod::of($context, $call);
+        if ($builder === null || $method === null) {
             return;
         }
 
-        $caller = strtolower($call->getName($context->source) ?? '') === 'willreturn'
-            ? 'willReturn()'
-            : 'willReturnOnConsecutiveCalls()';
-        $consecutive = $caller !== 'willReturn()';
-        if (self::reportBottom($context, $call, $method, $caller)) {
+        $caller = "{$builder}()";
+        if ($builder === 'willReturn') {
+            self::checkWillReturn($context, $call, $method);
+
             return;
         }
 
-        $atCall = $consecutive || ReturnFit::takesAnyAtSetUp($method->returnType);
-        foreach ($call->arguments as $index => $argument) {
-            $value = $context->argumentTypes[$index] ?? null;
-            // When PHPUnit doesn't check a value at setup, a stub given as the value is called.
-            $returned = $atCall ? StubbedValue::of($context, $argument, $value, $method) : [$value, false];
-            if ($returned === null || $returned[0] === null) {
-                continue;
+        $bottom = $method->bottom();
+        foreach (self::returned($context, $call, $builder, $method) as [$span, $values]) {
+            if ($bottom === 'never' && $values !== []) {
+                self::reportNever($context, $method, $caller);
+
+                return;
             }
 
-            [$returnedType, $fromStub] = $returned;
-            $created = !$fromStub && Doubles::isCreatedBy($context, $argument->value);
-            $fit = $atCall
-                ? ReturnFit::atReturn($context, $returnedType, $method->returnType, $created)
-                : ReturnFit::atSetUp($context, $returnedType, $method->returnType, $created);
-            if (
-                $fit === null
-                || $fit === ReturnFit::FITS
-                || $atCall && !$fromStub && StubbedValue::isCustomStub($context, $returnedType)
-            ) {
-                continue;
+            if ($bottom === null) {
+                self::checkValues($context, $method, $caller, $values, $span);
             }
-
-            $given = TypeText::of($returnedType);
-            $given = $fromStub ? "a stub that returns `{$given}`" : "`{$given}`";
-            Reporter::report(
-                $context,
-                $fit === ReturnFit::FAILS ? Level::Error : Level::Warning,
-                self::CODE,
-                self::valueIssue($method, "`{$caller}` gets {$given}", $argument->value->span, $fit, $atCall),
-            );
         }
     }
 
     /**
-     * The issue for a value that doesn't fit, or fits only in part.
+     * The values returned for each argument of a builder method other than
+     * `willReturn()`, with the span to report.
      *
-     * @param ReturnFit::FAILS|ReturnFit::PARTIAL $fit
-     * @param bool $atCall Whether PHP checks the value when the double returns it.
-     *
-     * @mago-expect lint:no-boolean-flag-parameter
+     * @return list<array{Span, list<ReturnedValue>}>
      */
-    private static function valueIssue(
+    private static function returned(
+        NodeAnalysisContext $context,
+        CallExpression $call,
+        string $builder,
         ConfiguredMethod $method,
-        string $given,
-        Span $span,
-        string $fit,
-        bool $atCall,
-    ): Issue {
-        $fails = $fit === ReturnFit::FAILS;
-        $returned = TypeText::of($method->returnType);
-        if (!$atCall) {
-            return Reporter::issue(
-                "{$given}, but `{$method->name}` returns `{$returned}`, so PHPUnit throws"
-                . ($fails ? '.' : ' for some of these values.'),
-                $span,
-                help: "Return a value of the method's native return type. PHPUnit doesn't convert scalars, so `1` doesn't fit `float` and `'1'` doesn't fit `int`.",
-            );
+    ): array {
+        $first = $call->arguments[0] ?? null;
+        $type = $context->argumentTypes[0] ?? null;
+        $values = match ($builder) {
+            'willReturnOnConsecutiveCalls' => null,
+            'willReturnSelf' => [new ReturnedValue($method->double, fromStub: true)],
+            'willReturnCallback' => $first === null
+                ? null
+                : ArgumentStubs::callback($context, $first->value, $type, $method),
+            'willReturnArgument' => ArgumentStubs::argument($method, $type?->getLiteralInt()),
+            'will' => $first === null ? null : StubbedValue::of($context, $first->value, $type, $method),
+            default => ValueMapRows::values($type, $method, filled: true, strict: $builder === 'willReturnStrictMap'),
+        };
+
+        if ($builder !== 'willReturnOnConsecutiveCalls') {
+            $span = $first?->value->span ?? $context->node->span;
+
+            return $values === null || $first?->unpacked === true ? [] : [[$span, $values]];
         }
 
-        return Reporter::issue(
-            "{$given}, but `{$method->name}` returns `{$returned}`, so the double fails with a `TypeError` when it returns "
-            . ($fails ? 'this value.' : 'some of these values.'),
-            $span,
-            help: "Return a value of the method's native return type. The double uses strict types, so PHP only converts an `int` to a `float`.",
-        );
+        $returned = [];
+        foreach (self::givenValues($context, $call) as [$node, $value]) {
+            $returned[] = [$node->span, StubbedValue::of($context, $node, $value, $method) ?? []];
+        }
+
+        return $returned;
     }
 
     /**
-     * Reports values set up for a `void` or `never` method. Returns whether
-     * the method is one of them.
+     * Checks the values given to `willReturn()`.
      *
-     * PHPUnit throws for any `willReturn()` value of such a method. A double
-     * of a `void` method drops the values of `willReturnOnConsecutiveCalls()`.
-     * A double of a `never` method ends without a return after getting a
-     * value, so PHP throws a `TypeError`, unless the value is a stub that
-     * throws.
+     * PHPUnit checks the values when `willReturn()` is called. A stub that
+     * passes the check, or any value for a return type that PHPUnit doesn't
+     * check, is checked when the double returns it.
      */
-    private static function reportBottom(
+    private static function checkWillReturn(
         NodeAnalysisContext $context,
         CallExpression $call,
         ConfiguredMethod $method,
-        string $caller,
-    ): bool {
+    ): void {
         $bottom = $method->bottom();
-        if ($bottom === null) {
-            return false;
-        }
-
-        if ($caller === 'willReturn()') {
+        if ($bottom !== null) {
             Reporter::report(
                 $context,
                 Level::Error,
@@ -190,41 +194,167 @@ final class MockReturnHook implements MethodCallAnalysisHook
                 ),
             );
 
-            return true;
+            return;
         }
 
-        if ($bottom === 'never' && self::returnsValue($context, $call, $method)) {
-            Reporter::report(
-                $context,
-                Level::Error,
-                self::CODE,
-                Reporter::issue(
-                    "`{$method->name}` returns `never`, so the double fails with a `TypeError` after it gets a value from `willReturnOnConsecutiveCalls()`.",
-                    $context->node->span,
-                    help: 'Use `willThrowException()` instead. A method that returns `never` must throw.',
-                ),
-            );
-        }
+        $takesAny = ReturnFit::takesAnyAtSetUp($method->returnType);
+        foreach (self::givenValues($context, $call) as [$node, $value]) {
+            if ($takesAny) {
+                $values = StubbedValue::of($context, $node, $value, $method) ?? [];
+                self::checkValues($context, $method, 'willReturn()', $values, $node->span);
+                continue;
+            }
 
-        return true;
+            $fit = ReturnFit::atSetUp($context, $value, $method->returnType, Doubles::isCreatedBy($context, $node));
+            if ($fit === ReturnFit::FITS) {
+                $values = StubbedValue::isStub($value) ? StubbedValue::of($context, $node, $value, $method) ?? [] : [];
+                self::checkValues($context, $method, 'willReturn()', $values, $node->span);
+                continue;
+            }
+
+            if ($fit !== null) {
+                self::reportSetUp($context, $method, $fit, $value, $node->span);
+            }
+        }
     }
 
     /**
-     * Whether one of the values is returned by the double, rather than a stub
-     * that throws or a stub whose result isn't known.
+     * The values given to `willReturn()` or `willReturnOnConsecutiveCalls()`,
+     * with their types. An unpacked array that's written out, such as
+     * `...[1, 2]`, gives its elements. Other unpacked values are left out.
+     *
+     * @return list<array{Node, Type}>
      */
-    private static function returnsValue(
-        NodeAnalysisContext $context,
-        CallExpression $call,
-        ConfiguredMethod $method,
-    ): bool {
+    private static function givenValues(NodeAnalysisContext $context, CallExpression $call): array
+    {
+        $given = [];
+        $unpacked = [];
         foreach ($call->arguments as $index => $argument) {
-            $returned = StubbedValue::of($context, $argument, $context->argumentTypes[$index] ?? null, $method);
-            if ($returned !== null && ($returned[1] || !StubbedValue::isCustomStub($context, $returned[0]))) {
-                return true;
+            if (!$argument->unpacked) {
+                $type = $context->argumentTypes[$index] ?? null;
+                $given = $type === null ? $given : [...$given, [$argument->value, $type]];
+                continue;
+            }
+
+            $unpacked = [...$unpacked, ...(StubSyntax::elements($context->source, $argument->value) ?? [])];
+        }
+
+        $types = $unpacked === [] ? [] : $context->analysis->getMultipleExpressionTypes($unpacked);
+        foreach ($unpacked as $position => $node) {
+            $type = $types[$position] ?? null;
+            $given = $type === null ? $given : [...$given, [$node, $type]];
+        }
+
+        return $given;
+    }
+
+    /**
+     * Reports the first value that doesn't fit, checked when the double returns it.
+     *
+     * @param list<ReturnedValue> $values
+     */
+    private static function checkValues(
+        NodeAnalysisContext $context,
+        ConfiguredMethod $method,
+        string $caller,
+        array $values,
+        Span $span,
+    ): void {
+        $found = null;
+        foreach ($values as $value) {
+            $fit = ReturnFit::atReturn($context, $value->type, $method->returnType, $value->exact);
+            $fit = match (true) {
+                $fit === ReturnFit::FAILS && $value->reporting === ReturnedValue::AS_WARNING => ReturnFit::PARTIAL,
+                $fit === ReturnFit::PARTIAL && $value->reporting === ReturnedValue::FAILS_ONLY => null,
+                default => $fit,
+            };
+            if ($fit === ReturnFit::FAILS || $fit === ReturnFit::PARTIAL && $found === null) {
+                $found = [$fit, $value];
+            }
+
+            if ($fit === ReturnFit::FAILS) {
+                break;
             }
         }
 
-        return false;
+        if ($found === null) {
+            return;
+        }
+
+        [$fit, $value] = $found;
+        $type = TypeText::of($value->type);
+        $subject = match (true) {
+            !in_array($caller, self::GIVEN, strict: true) => "`{$caller}` makes the double return `{$type}`",
+            $value->fromStub => "`{$caller}` gets a stub that returns `{$type}`",
+            default => "`{$caller}` gets `{$type}`",
+        };
+        $returned = TypeText::of($method->returnType);
+        $fails = $fit === ReturnFit::FAILS;
+        Reporter::report(
+            $context,
+            $fails ? Level::Error : Level::Warning,
+            self::CODE,
+            Reporter::issue(
+                "{$subject}, but `{$method->name}` returns `{$returned}`, so the double fails with a `TypeError` when it returns "
+                . ($fails ? 'this value.' : 'some of these values.')
+                . ($value->reason === null ? '' : " {$value->reason}"),
+                $span,
+                help: "Return a value of the method's native return type. The double uses strict types, so PHP only converts an `int` to a `float`.",
+            ),
+        );
+    }
+
+    /**
+     * Reports a `willReturn()` value that PHPUnit doesn't take, or takes only in part.
+     *
+     * @param ReturnFit::FAILS|ReturnFit::PARTIAL $fit
+     */
+    private static function reportSetUp(
+        NodeAnalysisContext $context,
+        ConfiguredMethod $method,
+        string $fit,
+        Type $value,
+        Span $span,
+    ): void {
+        $fails = $fit === ReturnFit::FAILS;
+        Reporter::report(
+            $context,
+            $fails ? Level::Error : Level::Warning,
+            self::CODE,
+            Reporter::issue(
+                sprintf(
+                    '`willReturn()` gets `%s`, but `%s` returns `%s`, so PHPUnit throws%s',
+                    TypeText::of($value),
+                    $method->name,
+                    TypeText::of($method->returnType),
+                    $fails ? '.' : ' for some of these values.',
+                ),
+                $span,
+                help: "Return a value of the method's native return type. PHPUnit doesn't convert scalars, so `1` doesn't fit `float` and `'1'` doesn't fit `int`.",
+            ),
+        );
+    }
+
+    /**
+     * Reports a value set up for a `never` method, other than by
+     * `willReturn()`. The double ends without a return after it gets the
+     * value, so PHP throws a `TypeError`.
+     */
+    private static function reportNever(NodeAnalysisContext $context, ConfiguredMethod $method, string $caller): void
+    {
+        Reporter::report(
+            $context,
+            Level::Error,
+            self::CODE,
+            Reporter::issue(
+                sprintf(
+                    '`%s` returns `never`, so the double fails with a `TypeError` after it gets a value from `%s`.',
+                    $method->name,
+                    $caller,
+                ),
+                $context->node->span,
+                help: 'Use `willThrowException()` instead. A method that returns `never` must throw.',
+            ),
+        );
     }
 }

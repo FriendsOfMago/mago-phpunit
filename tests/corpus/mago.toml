@@ -18,10 +18,12 @@ check-throws = true
 check-property-initialization = true
 class-initializers = ["PHPUnit\\Framework\\TestCase::setUp"]
 # PHPUnit 11.5 and 12 deprecate assertContainsOnly(), and PHPUnit 10 doesn't. PHPUnit 10 and 11
-# deprecate getMockForTrait() and getObjectForTrait().
+# deprecate getMockForTrait(), getObjectForTrait() and the TestCase methods that create stubs, such
+# as returnValue().
 ignore = [
     { code = "deprecated-method", in = "src/assertions/ContainsOnlyTest.php" },
     { code = "deprecated-method", in = "src/mocks/TraitDoubleTest.php" },
+    { code = "deprecated-method", in = "src/mocks/MockStubHelpersTest.php" },
 ]
 
 [formatter]

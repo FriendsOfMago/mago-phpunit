@@ -80,17 +80,13 @@ final class ConfiguredMethod
     }
 
     /**
-     * The method configured by the call, when the call has positional values
-     * and the method has a native return type, or null.
+     * The method configured by the call, when the call doesn't have named
+     * arguments and the method has a native return type, or null.
      */
     public static function of(NodeAnalysisContext $context, CallExpression $call): ?self
     {
-        if ($call->arguments === []) {
-            return null;
-        }
-
         foreach ($call->arguments as $argument) {
-            if ($argument->name !== null || $argument->unpacked) {
+            if ($argument->name !== null) {
                 return null;
             }
         }
@@ -154,7 +150,7 @@ final class ConfiguredMethod
         [$nameType, $doubleType] = $context->analysis->getMultipleExpressionTypes([$argument->value, $double]);
         $names = Types::literalStrings($nameType);
         $classes = Doubles::classes($doubleType);
-        if ($names === null || count($names) !== 1 || $doubleType === null || $classes === []) {
+        if ($names === null || count($names) !== 1 || $names[0] === '' || $doubleType === null || $classes === []) {
             return null;
         }
 

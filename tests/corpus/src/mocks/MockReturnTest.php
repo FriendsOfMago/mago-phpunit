@@ -402,13 +402,23 @@ final class MockReturnTest extends TestCase
     }
 
     /**
-     * A stub with a result that isn't known here, an index past the
-     * parameters, and an object for an intersection type aren't reported.
+     * An index past the parameters gets null, unless the call passes more
+     * arguments, so it's a warning.
+     */
+    public function testConsecutiveArgumentPastParameters(): void
+    {
+        $stub = $this->createStub(Accounts::class);
+        // @mago-expect analysis:phpunit/mock-invalid-return
+        $stub->method('total')->willReturnOnConsecutiveCalls(new ReturnArgument(0));
+    }
+
+    /**
+     * A stub with a result that isn't known here and an object for an
+     * intersection type aren't reported.
      */
     public function testConsecutiveUnknown(): void
     {
         $stub = $this->createStub(Accounts::class);
-        $stub->method('total')->willReturnOnConsecutiveCalls(new ReturnArgument(0));
         $stub->method('both')->willReturnOnConsecutiveCalls(new Company());
         $stub->method('name')->willReturnOnConsecutiveCalls($this->createStub(
             \PHPUnit\Framework\MockObject\Stub\Stub::class,
