@@ -21,4 +21,11 @@ final class MockPartialMethodsTest extends TestCase
         // @mago-expect analysis:phpunit/mock-undefined-method
         $mock->method('sealed');
     }
+
+    public function testMissing(): void
+    {
+        // @mago-expect analysis:phpunit/mock-undefined-method
+        $this->createPartialMock(Thing::class, ['missing']);
+        $this->addToAssertionCount(1);
+    }
 }

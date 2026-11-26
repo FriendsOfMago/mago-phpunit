@@ -13,6 +13,7 @@ use MagoPHPUnit\Analyzer\Assertion\AssertionProvider;
 use MagoPHPUnit\Analyzer\Assertion\RedundantAssertionFunctionHook;
 use MagoPHPUnit\Analyzer\Assertion\RedundantAssertionHook;
 use MagoPHPUnit\Analyzer\Mock\IntersectionMockProvider;
+use MagoPHPUnit\Analyzer\Mock\MockBuilderMethodsHook;
 use MagoPHPUnit\Analyzer\Mock\MockMethodHook;
 use MagoPHPUnit\Analyzer\Mock\MockReturnHook;
 use MagoPHPUnit\Analyzer\Mock\MockUnionArgumentFilter;
@@ -73,6 +74,7 @@ final class PHPUnitPlugin implements Plugin
         $registry->registerIssueFilterHook(new UncheckedExceptionFilter());
         $registry->registerMethodCallAnalysisHook(new MockMethodHook());
         $registry->registerMethodCallAnalysisHook(new MockReturnHook());
+        $registry->registerMethodCallAnalysisHook(new MockBuilderMethodsHook());
         $registry->registerMethodCallAnalysisHook(new AssertCountHook());
         $registry->registerMethodCallAnalysisHook(new PlainMockCallHook('expects'));
         $registry->registerMethodCallAnalysisHook(new PlainMockCallHook('method'));

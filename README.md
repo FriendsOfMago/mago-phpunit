@@ -192,7 +192,8 @@ Each check reports an analyzer issue with a `phpunit/` code.
 | Code | Level | Reports |
 | --- | --- | --- |
 | `phpunit/redundant-assertion` | warning | an assertion that always passes for the value's type, such as `assertNotNull()` on a `Foo` |
-| `phpunit/mock-undefined-method` | error | `method('name')` for a method that can't be replaced in the double: missing, final, private, protected, a constructor or a destructor |
+| `phpunit/mock-undefined-method` | error | `method('name')` for a method that can't be replaced in the double: missing, final, private, protected, a constructor or a destructor. Also a method given to `createPartialMock()`, or to `onlyMethods()` in a chain that starts at `getMockBuilder()` with a literal class name, that isn't found by reflection |
+| `phpunit/mock-added-method-exists` | error | a method given to `addMethods()` (PHPUnit 10 and 11) that already exists in the mocked class |
 | `phpunit/mock-call-on-plain-type` | error | `expects()` or `method()` on a value typed without `MockObject`, when its class doesn't declare that method |
 | `phpunit/mock-invalid-return` | error, or warning for a value that fits in part | a `willReturn()` or `willReturnOnConsecutiveCalls()` value that doesn't fit the method's return type, listed under [Mock return values](#mock-return-values) |
 | `phpunit/prophecy-union` | warning | a type documented as `Foo\|ObjectProphecy`, which should be `ObjectProphecy<Foo>` |

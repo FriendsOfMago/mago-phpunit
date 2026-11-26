@@ -22,4 +22,23 @@ final class MockAddMethodsTest extends TestCase
         $mock = $this->getMockBuilder(Thing::class)->addMethods(['extra'])->getMock();
         $mock->method('extra')->willReturn(null);
     }
+
+    public function testExistingMethod(): void
+    {
+        // @mago-expect analysis:deprecated-method
+        // @mago-expect analysis:phpunit/mock-added-method-exists
+        $this->getMockBuilder(Thing::class)->addMethods(['onlyOnThing']);
+        $this->addToAssertionCount(1);
+    }
+
+    /**
+     * The real method behind an `@method` tag exists.
+     */
+    public function testRetagged(): void
+    {
+        // @mago-expect analysis:deprecated-method
+        // @mago-expect analysis:phpunit/mock-added-method-exists
+        $this->getMockBuilder(RetaggedThing::class)->addMethods(['onlyOnThing']);
+        $this->addToAssertionCount(1);
+    }
 }
