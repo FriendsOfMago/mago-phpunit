@@ -9,6 +9,7 @@ use Mago\Sdk\Span;
 use MagoPHPUnit\Analyzer\Support\Reporter;
 use MagoPHPUnit\Analyzer\TestClass\PHPUnitAttributes;
 use MagoPHPUnit\Analyzer\TestClass\TestClass;
+use MagoPHPUnit\Internal\PHPUnitFeatures;
 
 use function array_diff;
 use function array_keys;
@@ -19,6 +20,8 @@ use function in_array;
  * Reports data providers without data sets, for the tests whose providers are all empty.
  *
  * @internal
+ *
+ * @mago-expect lint:cyclomatic-complexity
  */
 final class EmptyProviders
 {
@@ -38,10 +41,11 @@ final class EmptyProviders
      * Reports each empty provider of a test whose providers are all empty.
      *
      * PHPUnit 10 and later merge the data sets of a test's providers, so one
-     * provider with data is enough for the test to run.
+     * provider with data is enough for the test to run. A closure provider
+     * doesn't have metadata.
      *
      * @param list<list<string>> $tests The provider keys of each test, from knowsAll().
-     * @param array<string, array{MethodMetadataProjection, Span}> $empty Each empty provider, with its first `return`.
+     * @param array<string, array{?MethodMetadataProjection, Span}> $empty Each empty provider, with its first `return`.
      */
     public static function report(TestClass $test, array $tests, array $empty): void
     {
@@ -68,11 +72,14 @@ final class EmptyProviders
      */
     private static function providerCount(TestClass $test, MethodMetadataProjection $method): int
     {
-        // A closure provider, added in PHPUnit 13.4, may have data too.
+        // A closure provider counts on PHPUnit 13.1 and later, which have the attribute.
+        $closures = PHPUnitFeatures::hasClosureProviders($test->codebase)
+            ? count(PHPUnitAttributes::of($method, name: 'DataProviderClosure'))
+            : 0;
         $count =
             count(PHPUnitAttributes::of($method, name: 'DataProvider'))
             + count(PHPUnitAttributes::of($method, name: 'DataProviderExternal'))
-            + count(PHPUnitAttributes::of($method, name: 'DataProviderClosure'));
+            + $closures;
         foreach ($test->methodTags($method, ['dataProvider']) as $tag) {
             if ($tag['gap'] === '' || DataProviderCheck::tagValue($tag['value']) === '') {
                 continue;
@@ -107,12 +114,14 @@ final class EmptyProviders
 
     /**
      * Reports an `invalid-data-provider` error on the first `return` of a provider without data sets.
+     *
+     * A closure provider is given as null.
      */
-    private static function reportEmpty(TestClass $test, MethodMetadataProjection $provider, Span $where): void
+    private static function reportEmpty(TestClass $test, ?MethodMetadataProjection $provider, Span $where): void
     {
-        $name = $provider->originalName ?? $provider->name ?? '';
+        $name = $provider === null ? 'closure' : ($provider->originalName ?? $provider->name ?? '') . '()';
         $test->reporter->error(DataProviderCheck::CODE, Reporter::issue(
-            "The data provider {$name}() doesn't return any data sets.",
+            "The data provider {$name} doesn't return any data sets.",
             where: $where,
             help: 'PHPUnit 10 and later fail each test that uses a data provider without data sets. Return at least one data set.',
         ));

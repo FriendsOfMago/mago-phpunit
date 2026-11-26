@@ -9,7 +9,6 @@ use Mago\Sdk\Analyzer\Metadata\MethodMetadataProjection;
 use Mago\Sdk\Analyzer\Type;
 use Mago\Sdk\Span;
 use MagoPHPUnit\Analyzer\Support\Reporter;
-use MagoPHPUnit\Analyzer\TestClass\PHPUnitAttributes;
 use MagoPHPUnit\Analyzer\TestClass\TestClass;
 use MagoPHPUnit\Internal\PHPUnitFeatures;
 
@@ -17,14 +16,11 @@ use function array_intersect;
 use function array_key_exists;
 use function array_slice;
 use function count;
-use function explode;
-use function ltrim;
-use function str_contains;
 use function stripos;
 use function strtolower;
 
 /**
- * Checks the data sets of each test's data providers in the same class.
+ * Checks the data sets of each test's data providers in the same class and its closure providers.
  *
  * @internal
  *
@@ -36,7 +32,7 @@ final class DataProviderDataCheck
     private function __construct() {}
 
     /**
-     * Checks each test against the data sets of its providers in the same class.
+     * Checks each test against the data sets of its providers in the same class and its closure providers.
      */
     public static function check(TestClass $test): void
     {
@@ -52,10 +48,9 @@ final class DataProviderDataCheck
         foreach ($values as $key => $found) {
             $sets[$key] = ProviderReturns::build($found);
             $stringKeys[$key] = ProviderReturns::stringKeys($found);
-            $provider = $providers[$key] ?? null;
             $first = $found[0] ?? null;
-            if ($provider !== null && $first !== null && ProviderReturns::empty($found)) {
-                $empty[$key] = [$provider, $first->span];
+            if ($first !== null && ProviderReturns::empty($found)) {
+                $empty[$key] = [$providers[$key][1] ?? null, $first->span];
             }
         }
 
@@ -73,11 +68,13 @@ final class DataProviderDataCheck
     }
 
     /**
-     * The providers used by each test, the providers by lowercased name, and the tests for the empty check.
+     * The providers used by each test, and the tests for the empty check.
+     *
+     * The providers are keyed by lowercased name, or by offset for a closure.
      *
      * @return array{
      *     list<array{MethodMetadataProjection, list<string>, list<bool|Span>}>,
-     *     array<string, MethodMetadataProjection>,
+     *     array<string, array{Span, ?MethodMetadataProjection}>,
      *     list<list<string>>,
      * }
      */
@@ -95,14 +92,16 @@ final class DataProviderDataCheck
             $keys = [];
             $counts = [];
             $late = false;
-            foreach (self::providers($test, $method) as [$name, $countsValues, $unqualified]) {
-                $provider = $test->method($name);
-                if ($provider === null) {
+            foreach (TestProviders::of($test, $method) as [$name, $closure, $countsValues, $unqualified]) {
+                // A closure provider is keyed by the offset of its span.
+                $provider = $closure === null ? $test->method($name) : null;
+                $span = $closure ?? $provider?->location?->span;
+                if ($span === null) {
                     continue;
                 }
 
-                $key = strtolower($name);
-                $providers[$key] ??= $provider;
+                $key = $closure === null ? strtolower($name) : "{closure}@{$span->start}";
+                $providers[$key] ??= [$span, $provider];
                 $keys[] = $key;
                 $counts[] = $countsValues;
                 $late = $late || $unqualified && $abstract;
@@ -124,7 +123,7 @@ final class DataProviderDataCheck
     /**
      * The typed values of each provider, and the uses with each `validateArgumentCount` flag resolved.
      *
-     * @param array<string, MethodMetadataProjection> $providers
+     * @param array<string, array{Span, ?MethodMetadataProjection}> $providers
      * @param list<array{MethodMetadataProjection, list<string>, list<bool|Span>}> $uses
      * @return array{
      *     array<string, list<ReturnedValue>>,
@@ -136,9 +135,8 @@ final class DataProviderDataCheck
         // One query fetches the types of every provider's values.
         $values = [];
         $spans = [];
-        foreach ($providers as $key => $provider) {
-            $location = $provider->location;
-            $values[$key] = $location === null ? [] : ProviderReturns::find($test->contents, $location->span);
+        foreach ($providers as $key => [$span]) {
+            $values[$key] = ProviderReturns::find($test->contents, $span);
             foreach ($values[$key] as $value) {
                 $spans[] = $value->span;
             }
@@ -213,7 +211,7 @@ final class DataProviderDataCheck
      * Reports providers with a data set key `''` that is always given.
      *
      * @param array<string, array<array-key, Span>> $stringKeys The string keys of each provider.
-     * @return list<string> The lowercased names of the reported providers.
+     * @return list<string> The keys of the reported providers.
      */
     private static function reportEmptyKeys(TestClass $test, array $stringKeys): array
     {
@@ -240,7 +238,7 @@ final class DataProviderDataCheck
     /**
      * Reports the first string key given twice by a test's providers.
      *
-     * @param list<string> $keys The lowercased names of the test's providers in the class, in order.
+     * @param list<string> $keys The keys of the test's providers in the class, in order.
      * @param array<string, array<array-key, Span>> $stringKeys The string keys of each provider.
      * @return bool Whether a duplicate was reported.
      */
@@ -271,43 +269,6 @@ final class DataProviderDataCheck
         }
 
         return false;
-    }
-
-    /**
-     * The names and flags of the test method's providers in the test class.
-     *
-     * @return list<array{string, bool|Span, bool}> The name, count flag and whether the class name is omitted.
-     */
-    private static function providers(TestClass $test, MethodMetadataProjection $method): array
-    {
-        // Only same-class providers are included. The `DataProvider` attributes are checked. The
-        // `@dataProvider` tags are checked when annotations are parsed by PHPUnit.
-        $names = [];
-        foreach (PHPUnitAttributes::of($method, name: 'DataProvider') as $attribute) {
-            $name = PHPUnitAttributes::string($attribute, index: 0, name: 'methodName');
-            $validate = $attribute->getArgument(1, 'validateArgumentCount');
-            // PHPUnit counts the set's values unless `validateArgumentCount` is false.
-            // A flag that isn't a literal is passed to the analysis as its expression span.
-            $literal = $validate?->valueType?->getLiteralBool();
-            $counts = $validate === null ? true : $literal ?? $validate->valueLocation->span ?? false;
-            if ($name !== null) {
-                $names[] = [$name, $counts, true];
-            }
-        }
-
-        foreach ($test->methodTags($method, ['dataProvider']) as $tag) {
-            $value = DataProviderCheck::tagValue($tag['value']);
-            [$class, $name] = str_contains($value, '::') ? explode('::', $value, limit: 2) : ['', $value];
-            if (
-                $tag['gap'] !== ''
-                && $name !== ''
-                && ($class === '' || strtolower(ltrim($class, characters: '\\')) === strtolower($test->class->name))
-            ) {
-                $names[] = [$name, true, $class === ''];
-            }
-        }
-
-        return $names;
     }
 
     /**

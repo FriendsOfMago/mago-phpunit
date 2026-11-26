@@ -53,6 +53,7 @@ final class DataProviderCheck
             return;
         }
 
+        ClosureProviderCheck::check($test);
         $annotations = str_contains($test->contents, '@dataProvider');
         foreach ($test->methods() as $method) {
             // PHPUnit ignores the providers of methods that aren't tests.

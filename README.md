@@ -345,10 +345,13 @@ public static function cases(): iterable
 public function testCase(int $number, string $name): void {}
 ```
 
-A test's providers are found through its `DataProvider` and `DataProviderExternal` attributes and
-its `@dataProvider` tags. An `invalid-data-provider` error is reported for:
+A test's providers are found through its `DataProvider` and `DataProviderExternal` attributes, its
+`@dataProvider` tags, and the closures of its `DataProviderClosure` attributes on PHPUnit 13.1 and
+later. An `invalid-data-provider` error is reported for:
 
 - a provider that is missing, isn't public or static, or takes arguments;
+- a closure provider with a required parameter, or with a return type that isn't iterable, and a
+  first-class callable such as `self::cases(...)` of a method that isn't static;
 - a bare `@dataProvider` tag;
 - a data set that isn't an array, or that has the key `''` on PHPUnit 13;
 - the same string key in the data sets of two of a test's providers;
@@ -365,8 +368,8 @@ PHPUnit only warns about two cases, so they're `invalid-data-provider` warnings:
 - a `#[TestWith*]` attribute next to a `#[DataProvider*]` attribute, on PHPUnit 12.5 and later.
   PHPUnit ignores the `#[TestWith*]` data sets then.
 
-For a provider in the same class, the data sets are also matched against the test's parameters,
-following PHPUnit's rules for passing them. A data set that doesn't fit is a
+For a provider in the same class or a closure, the data sets are also matched against the test's
+parameters, following PHPUnit's rules for passing them. A data set that doesn't fit is a
 `data-provider-mismatch` error:
 
 - The values go to the parameters in order. From PHPUnit 11 on, a value under a string key goes to

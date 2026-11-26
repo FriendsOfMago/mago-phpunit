@@ -225,7 +225,7 @@ final class ProviderReturns
      * The values of `return`, `yield` and `yield from` in a provider body, without their types.
      *
      * @param string $contents The contents of the provider's file.
-     * @param Span $method The span of the provider method.
+     * @param Span $method The span of the provider method, or of a closure provider.
      * @return list<ReturnedValue>
      *
      * @mago-expect lint:halstead
@@ -309,9 +309,10 @@ final class ProviderReturns
 
     /**
      * The indexes of the tokens inside each closure and arrow function in the
-     * method.
+     * provider.
      *
-     * The first `function` token is the method itself and is skipped. A
+     * The first `function` token is the provider itself, a method or a
+     * closure, and is skipped. A
      * `return` or `yield` inside a closure belongs to the closure, not to the
      * provider.
      *

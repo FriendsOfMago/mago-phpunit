@@ -31,6 +31,14 @@ final class PHPUnitFeatures
     }
 
     /**
+     * Whether PHPUnit has `#[DataProviderClosure]`. PHPUnit 13.1 and later have it.
+     */
+    public static function hasClosureProviders(Codebase $codebase): bool
+    {
+        return $codebase->classLikeExists('PHPUnit\Framework\Attributes\DataProviderClosure');
+    }
+
+    /**
      * Whether PHPUnit parses annotations such as `@dataProvider`. PHPUnit 12
      * removed annotation support along with its annotation parser.
      */
