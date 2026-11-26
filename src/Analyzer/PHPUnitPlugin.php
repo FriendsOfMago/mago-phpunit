@@ -8,9 +8,9 @@ use Mago\Sdk\Analyzer\Plugin;
 use Mago\Sdk\Analyzer\PluginDefinition;
 use Mago\Sdk\Analyzer\PluginRegistry;
 use MagoPHPUnit\Analyzer\Assertion\AssertCountHook;
+use MagoPHPUnit\Analyzer\Assertion\AssertionFunctionHook;
 use MagoPHPUnit\Analyzer\Assertion\AssertionFunctionProvider;
 use MagoPHPUnit\Analyzer\Assertion\AssertionProvider;
-use MagoPHPUnit\Analyzer\Assertion\RedundantAssertionFunctionHook;
 use MagoPHPUnit\Analyzer\Assertion\RedundantAssertionHook;
 use MagoPHPUnit\Analyzer\Mock\IntersectionMockProvider;
 use MagoPHPUnit\Analyzer\Mock\MockBuilderMethodsHook;
@@ -82,7 +82,7 @@ final class PHPUnitPlugin implements Plugin
             $registry->registerMethodCallAnalysisHook(new RedundantAssertionHook($method));
         }
 
-        $registry->registerNodeAnalysisHook(new RedundantAssertionFunctionHook());
+        $registry->registerNodeAnalysisHook(new AssertionFunctionHook());
 
         $registry->registerClassLikeAnalysisHook(new TestClassHook());
 

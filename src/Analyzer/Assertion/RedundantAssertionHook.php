@@ -100,7 +100,7 @@ final class RedundantAssertionHook implements MethodCallAnalysisHook
     /**
      * Reports the call when it always passes for the asserted value's type.
      *
-     * RedundantAssertionFunctionHook calls this for the global assertion
+     * AssertionFunctionHook calls this for the global assertion
      * functions too. phpstan-phpunit reports the same calls. A type from a
      * docblock counts, as it does in PHPStan. Only assertions that always
      * pass are reported here. Mago itself reports an assertion on a variable

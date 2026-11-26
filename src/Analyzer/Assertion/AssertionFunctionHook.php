@@ -18,11 +18,15 @@ use function strtolower;
 use function substr;
 
 /**
- * Reports a call to a PHPUnit global assertion function, such as `assertNotNull()`, that always passes.
+ * Checks calls to PHPUnit's global assertion functions.
+ *
+ * A call that always passes, such as `assertNotNull('a')`, goes to
+ * RedundantAssertionHook. A call to `assertSame()`, also under another name
+ * from `use function ... as`, goes to AssertCountHook.
  *
  * @internal
  */
-final class RedundantAssertionFunctionHook implements NodeAnalysisHook
+final class AssertionFunctionHook implements NodeAnalysisHook
 {
     private const NAMESPACE = 'phpunit\framework\\';
 
@@ -31,8 +35,11 @@ final class RedundantAssertionFunctionHook implements NodeAnalysisHook
      */
     private array $hooks = [];
 
+    private AssertCountHook $count;
+
     public function __construct()
     {
+        $this->count = new AssertCountHook();
         foreach (array_keys(RedundantAssertionHook::METHODS) as $method) {
             $this->hooks[strtolower($method)] = new RedundantAssertionHook($method);
         }
@@ -61,7 +68,7 @@ final class RedundantAssertionFunctionHook implements NodeAnalysisHook
     }
 
     /**
-     * Passes a call to a PHPUnit assertion function to RedundantAssertionHook.
+     * Passes a call to a PHPUnit assertion function to the hook that checks it.
      */
     public function analyze(NodeAnalysisContext $context): void
     {
@@ -69,6 +76,12 @@ final class RedundantAssertionFunctionHook implements NodeAnalysisHook
         // call's start. So the name is found from the call node, and most
         // calls are skipped before their syntax is parsed.
         $name = strtolower($context->source->getResolvedName($context->node)->name ?? '');
+        if ($name === self::NAMESPACE . 'assertsame') {
+            $this->count->analyze($context);
+
+            return;
+        }
+
         $hook = str_starts_with($name, self::NAMESPACE)
             ? $this->hooks[substr($name, strlen(self::NAMESPACE))] ?? null
             : null;
