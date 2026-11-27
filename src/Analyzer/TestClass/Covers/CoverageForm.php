@@ -34,6 +34,22 @@ enum CoverageForm: string
     case FunctionAttribute = 'function';
 
     /**
+     * A `CoversNamespace` or `UsesNamespace` attribute, on PHPUnit 12 and later.
+     */
+    case NamespaceAttribute = 'namespace';
+
+    /**
+     * A `CoversClassesThatExtendClass` or `UsesClassesThatExtendClass` attribute, on PHPUnit 12 and later.
+     */
+    case ExtendsAttribute = 'extends';
+
+    /**
+     * A `CoversClassesThatImplementInterface` or `UsesClassesThatImplementInterface` attribute, on PHPUnit 12
+     * and later.
+     */
+    case ImplementsAttribute = 'implements';
+
+    /**
      * Whether the target is written in a tag.
      */
     public function isAnnotation(): bool

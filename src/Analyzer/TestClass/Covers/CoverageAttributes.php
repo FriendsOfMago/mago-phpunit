@@ -18,6 +18,7 @@ use function str_starts_with;
  * @internal
  *
  * @mago-expect lint:cyclomatic-complexity
+ * @mago-expect lint:kan-defect
  */
 final class CoverageAttributes
 {
@@ -25,22 +26,30 @@ final class CoverageAttributes
      * The covers and uses attributes, with the names of their target and member arguments.
      */
     private const ATTRIBUTES = [
-        [CoverageForm::ClassAttribute,    'CoversClass',    'className',    null],
-        [CoverageForm::TraitAttribute,    'CoversTrait',    'traitName',    null],
-        [CoverageForm::MethodAttribute,   'CoversMethod',   'className',    'methodName'],
-        [CoverageForm::FunctionAttribute, 'CoversFunction', 'functionName', null],
-        [CoverageForm::ClassAttribute,    'UsesClass',      'className',    null],
-        [CoverageForm::TraitAttribute,    'UsesTrait',      'traitName',    null],
-        [CoverageForm::MethodAttribute,   'UsesMethod',     'className',    'methodName'],
-        [CoverageForm::FunctionAttribute, 'UsesFunction',   'functionName', null],
+        [CoverageForm::ClassAttribute,      'CoversClass',                         'className',     null],
+        [CoverageForm::TraitAttribute,      'CoversTrait',                         'traitName',     null],
+        [CoverageForm::MethodAttribute,     'CoversMethod',                        'className',     'methodName'],
+        [CoverageForm::FunctionAttribute,   'CoversFunction',                      'functionName',  null],
+        [CoverageForm::ClassAttribute,      'UsesClass',                           'className',     null],
+        [CoverageForm::TraitAttribute,      'UsesTrait',                           'traitName',     null],
+        [CoverageForm::MethodAttribute,     'UsesMethod',                          'className',     'methodName'],
+        [CoverageForm::FunctionAttribute,   'UsesFunction',                        'functionName',  null],
+        [CoverageForm::NamespaceAttribute,  'CoversNamespace',                     'namespace',     null],
+        [CoverageForm::NamespaceAttribute,  'UsesNamespace',                       'namespace',     null],
+        [CoverageForm::ExtendsAttribute,    'CoversClassesThatExtendClass',        'className',     null],
+        [CoverageForm::ExtendsAttribute,    'UsesClassesThatExtendClass',          'className',     null],
+        [CoverageForm::ImplementsAttribute, 'CoversClassesThatImplementInterface', 'interfaceName', null],
+        [CoverageForm::ImplementsAttribute, 'UsesClassesThatImplementInterface',   'interfaceName', null],
     ];
 
     private function __construct() {}
 
     /**
-     * Checks the class `Covers*` and `Uses*` attributes for classes, traits, methods and functions.
+     * Checks the class `Covers*` and `Uses*` attributes for classes, traits, methods, functions, namespaces,
+     * subclasses and implementations.
      *
-     * PHPUnit 10 doesn't have the trait and method attributes, and ignores them.
+     * PHPUnit 10 doesn't have the trait and method attributes, and ignores them. The namespace, subclass and
+     * implementation attributes exist on PHPUnit 12 and later.
      */
     public static function check(TestClass $test): void
     {
@@ -66,17 +75,31 @@ final class CoverageAttributes
         // are served from the SDK's cache.
         $names = [];
         foreach ($targets as [$form, , $name]) {
-            if ($form === CoverageForm::FunctionAttribute) {
+            // The SDK rejects an empty name, such as one left from `'\\'`.
+            $class = ltrim($name, characters: '\\');
+            if (
+                $form === CoverageForm::FunctionAttribute
+                || $form === CoverageForm::NamespaceAttribute
+                || $class === ''
+            ) {
                 continue;
             }
 
-            $names[] = ltrim($name, characters: '\\');
+            $names[] = $class;
         }
 
         $test->codebase->getMultipleClassLikes($names);
         $asWritten = PHPUnitFeatures::mapsCoverageTargetsFromSource($test->codebase);
         foreach ($targets as [$form, $written, $name, $member, $location]) {
-            $problem = CoverageTargets::problem($test->codebase, $form, $name, $member);
+            $problem = match ($form) {
+                CoverageForm::NamespaceAttribute => SourceMapTargets::namespaceProblem($test->codebase, $name),
+                CoverageForm::ExtendsAttribute, CoverageForm::ImplementsAttribute => SourceMapTargets::kindProblem(
+                    $test->codebase,
+                    $form,
+                    $name,
+                ),
+                default => CoverageTargets::problem($test->codebase, $form, $name, $member),
+            };
             if ($problem === null) {
                 continue;
             }
@@ -133,6 +156,21 @@ final class CoverageAttributes
                 ? ["{$written} names {$name}, which doesn't exist.", null]
                 : ["{$written} names {$target}, but {$name} doesn't exist.", null],
             CoverageProblem::MissingMember => ["{$written} names {$target}, which doesn't exist.", null],
+            CoverageProblem::MissingNamespace => [
+                "{$written} names the namespace {$name}, which doesn't have any code.",
+                CoversCheck::LEFT_OUT_HELP,
+            ],
+            CoverageProblem::WrongKind => $form === CoverageForm::ExtendsAttribute
+                ? ["{$written} names {$name}, which isn't a class.", CoversCheck::LEFT_OUT_HELP]
+                : ["{$written} names {$name}, which isn't an interface.", CoversCheck::LEFT_OUT_HELP],
+            CoverageProblem::Unused => $form === CoverageForm::ExtendsAttribute
+                ? ["{$written} names {$name}, which isn't extended by any class.", CoversCheck::LEFT_OUT_HELP]
+                : [
+                    "{$written} names {$name}, which isn't in the implements list of any class.",
+                    'PHPUnit only counts a class that lists the interface itself. An enum or a child interface '
+                        . "doesn't count. "
+                        . CoversCheck::LEFT_OUT_HELP,
+                ],
         };
     }
 }

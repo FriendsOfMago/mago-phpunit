@@ -320,7 +320,13 @@ final class CoversCheck
                 self::LEFT_OUT_HELP,
             ],
             CoverageProblem::Builtin => ["@{$kind} {$value} names code built into PHP.", self::BUILTIN_HELP],
-            CoverageProblem::MissingClass, CoverageProblem::Trait, CoverageProblem::Inherited => [
+            CoverageProblem::MissingClass,
+            CoverageProblem::Trait,
+            CoverageProblem::Inherited,
+            CoverageProblem::MissingNamespace,
+            CoverageProblem::WrongKind,
+            CoverageProblem::Unused,
+                => [
                 $missing,
                 str_contains($value, '\\') ? null : 'PHPUnit reads the value as a fully qualified name.',
             ],

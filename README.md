@@ -463,13 +463,22 @@ An `invalid-covers` warning is reported for:
 - on PHPUnit 12 and later, `#[CoversClass]` for a trait, `#[CoversMethod]` for an interface method,
   `#[CoversMethod(Foo::class, 'bar')]` when `bar()` isn't declared in `Foo` itself, and a target
   written with a leading backslash;
+- on PHPUnit 12 and later, `#[CoversNamespace]` for a namespace without any class, trait or
+  function, `#[CoversClassesThatExtendClass]` for anything but a class that's extended by another
+  class, and `#[CoversClassesThatImplementInterface]` for anything but an interface in the
+  `implements` list of a class. A namespace with only interfaces or only code built into PHP isn't
+  reported, although PHPUnit doesn't accept it;
 - a `@coversDefaultClass` tag on a method, given twice, or naming something that isn't a class;
 - `@covers ::name` for a name that isn't a function, when the class doesn't have
   `@coversDefaultClass`.
 
-PHPUnit warns about each of these and leaves the test out of the coverage report.
+PHPUnit warns about each of these and leaves the test out of the coverage report. PHPUnit 12 and
+later only accept code in the `<source>` of `phpunit.xml`, which isn't known to the extension. So a
+target in `vendor`, or one that's only extended or implemented by code outside the source, isn't
+reported.
 
-The `#[UsesClass]`, `#[UsesTrait]`, `#[UsesMethod]` and `#[UsesFunction]` attributes, and the
+The `#[UsesClass]`, `#[UsesTrait]`, `#[UsesMethod]`, `#[UsesFunction]`, `#[UsesNamespace]`,
+`#[UsesClassesThatExtendClass]` and `#[UsesClassesThatImplementInterface]` attributes, and the
 `@uses` and `@usesDefaultClass` tags on PHPUnit 10 and 11, are checked with the same rules. PHPUnit
 checks their targets like covers targets. A `@uses` tag for an interface is accepted. Method tags
 are only read on test methods, and a class or test with `CoversNothing` isn't checked, since PHPUnit
